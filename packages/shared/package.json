@@ -1,0 +1,13 @@
+{
+  "name": "@amini/shared",
+  "version": "0.1.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc && cp src/abi/*.json dist/abi/ 2>/dev/null || true",
+    "test": "echo \"No tests\""
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

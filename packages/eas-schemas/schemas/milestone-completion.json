@@ -1,0 +1,7 @@
+{
+  "name": "Milestone Completion",
+  "description": "Third-party attestation that a campaign milestone was completed. Used by Amini escrow to release funds.",
+  "schema": "bytes32 campaignId, uint256 milestoneIndex, bytes32 evidenceHash, uint64 timestamp",
+  "decoder": "abi",
+  "version": 1
+}

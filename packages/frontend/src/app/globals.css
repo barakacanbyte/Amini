@@ -1,0 +1,301 @@
+@import "tailwindcss";
+
+/* Amini branding palette */
+@theme {
+  --color-emerald: #10b981;
+  --color-brown: #7b4a2d;
+  --color-amber: #d4a853;
+  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  /* Light theme */
+  --ui-bg: #1a1a1a;
+  --ui-surface: #f3f4f6;
+  --ui-surface-elev: #ffffff;
+  --ui-border: rgba(0, 0, 0, 0.1);
+  --ui-text: #2c2c2c;
+  --ui-muted: #5a5148;
+  --ui-brand-green: #10b981;
+  --ui-brand-green-strong: #0d9668;
+  --ui-brand-brown: #7b4a2d;
+  --ui-brand-brown-soft: #e8d5b0;
+  --ui-brand-amber: #d4a853;
+  --ui-focus-ring: rgba(16, 185, 129, 0.35);
+  --ui-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.35);
+  --ui-shadow-md: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.dark {
+  /* Dark theme */
+  --ui-bg: #141312;
+  --ui-surface: #241f1b;
+  --ui-surface-elev: #2e2722;
+  --ui-border: rgba(255, 255, 255, 0.12);
+  --ui-text: #f1e8dc;
+  --ui-muted: #cdbfae;
+  --ui-brand-green: #10b981;
+  --ui-brand-green-strong: #0ea673;
+  --ui-brand-brown: #d2a07c;
+  --ui-brand-brown-soft: rgba(123, 74, 45, 0.3);
+  --ui-brand-amber: #d4a853;
+  --ui-focus-ring: rgba(16, 185, 129, 0.45);
+  --ui-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.5);
+  --ui-shadow-md: 0 12px 28px rgba(0, 0, 0, 0.38);
+}
+
+.app-root {
+  background-color: var(--ui-bg);
+  color: var(--ui-text);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.app-root ::selection {
+  background-color: color-mix(in oklab, var(--ui-brand-amber) 30%, transparent);
+}
+
+@layer components {
+  .app-page {
+    min-height: 100vh;
+    background: var(--ui-bg);
+  }
+
+  .app-surface {
+    background: var(--ui-surface);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--ui-shadow-lg);
+  }
+
+  .app-surface-elev {
+    background: var(--ui-surface-elev);
+    border: 1px solid var(--ui-border);
+  }
+
+  .app-text {
+    color: var(--ui-text);
+  }
+
+  .app-muted {
+    color: var(--ui-muted);
+  }
+
+  .brand-green {
+    color: var(--ui-brand-green);
+  }
+
+  .brand-brown {
+    color: var(--ui-brand-brown);
+  }
+
+  .btn-base {
+    border-radius: 0.75rem;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .btn-neutral {
+    border: 1px solid color-mix(in oklab, var(--ui-border) 80%, transparent);
+    background: var(--ui-surface-elev);
+    color: var(--ui-text);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  .btn-neutral:hover {
+    border-color: color-mix(in oklab, var(--ui-brand-brown) 45%, var(--ui-border));
+    background: color-mix(in oklab, var(--ui-surface-elev) 88%, var(--ui-brand-brown-soft));
+  }
+
+  .btn-green {
+    border: 1px solid var(--ui-brand-green);
+    background: var(--ui-brand-green);
+    color: #fff;
+    box-shadow: 0 2px 10px -2px rgba(16, 185, 129, 0.45);
+  }
+
+  .btn-green:hover {
+    border-color: var(--ui-brand-green-strong);
+    background: var(--ui-brand-green-strong);
+  }
+
+  .btn-brown {
+    border: 1px solid var(--ui-brand-brown);
+    background: var(--ui-brand-brown);
+    color: var(--ui-brand-brown-soft);
+  }
+
+  .btn-brown:hover {
+    filter: brightness(1.05);
+  }
+
+  .btn-brown-outline {
+    border: 1px solid color-mix(in oklab, var(--ui-brand-brown) 45%, var(--ui-border));
+    background: var(--ui-surface-elev);
+    color: var(--ui-brand-brown);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  .btn-brown-outline:hover {
+    border-color: var(--ui-brand-brown);
+    background: color-mix(in oklab, var(--ui-surface-elev) 85%, var(--ui-brand-brown-soft));
+  }
+
+  .focus-brand {
+    outline: none;
+  }
+
+  .focus-brand:focus-visible {
+    box-shadow: 0 0 0 2px var(--ui-focus-ring);
+  }
+
+  /* Form inputs */
+  .input-field {
+    width: 100%;
+    border: 1px solid var(--ui-border);
+    background: var(--ui-surface-elev);
+    color: var(--ui-text);
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    transition: border-color 150ms ease;
+  }
+
+  .input-field::placeholder {
+    color: var(--ui-muted);
+  }
+
+  .input-field:focus {
+    outline: none;
+    border-color: var(--ui-brand-brown);
+  }
+
+  /* Callout boxes */
+  .callout-amber {
+    border: 1px solid color-mix(in oklab, var(--ui-brand-amber) 50%, var(--ui-border));
+    background: color-mix(in oklab, var(--ui-brand-amber) 10%, transparent);
+    border-radius: 0.75rem;
+    padding: 1rem;
+  }
+
+  .callout-brown {
+    border: 1px solid color-mix(in oklab, var(--ui-brand-brown) 40%, var(--ui-border));
+    background: color-mix(in oklab, var(--ui-brand-brown) 12%, transparent);
+    border-radius: 0.75rem;
+    padding: 1rem;
+  }
+
+  /* Accent links */
+  .link-amber {
+    color: var(--ui-brand-amber);
+    transition: color 150ms ease;
+  }
+
+  .link-amber:hover {
+    text-decoration: underline;
+  }
+
+  /* Flow event cards */
+  .flow-deposit {
+    display: block;
+    border: 1px solid color-mix(in oklab, var(--ui-brand-brown) 40%, var(--ui-border));
+    background: color-mix(in oklab, var(--ui-brand-brown) 10%, transparent);
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    transition: border-color 150ms ease;
+  }
+
+  .flow-deposit:hover {
+    border-color: var(--ui-brand-brown);
+  }
+
+  .flow-release {
+    display: block;
+    border: 1px solid color-mix(in oklab, var(--ui-brand-amber) 40%, var(--ui-border));
+    background: color-mix(in oklab, var(--ui-brand-amber) 10%, transparent);
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    transition: border-color 150ms ease;
+  }
+
+  .flow-release:hover {
+    border-color: var(--ui-brand-amber);
+  }
+}
+
+/*
+ * Header action strip — every button shares 40px height, 9999px pill radius,
+ * 0 16px padding, label1 typography so they sit on one visual rhythm.
+ */
+.header-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.header-actions .cds-Button {
+  flex-shrink: 0;
+  height: 40px !important;
+  min-height: 40px !important;
+  border-radius: 9999px !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  line-height: 1.25rem !important;
+  padding: 0 16px !important;
+}
+
+.amini-header-wallet [data-testid="ockConnectButton"],
+.amini-header-wallet [data-testid="ockConnectAccountButtonInner"] {
+  height: 40px !important;
+  min-height: 40px !important;
+  min-width: auto !important;
+  width: auto !important;
+  max-width: 200px;
+  padding: 0 16px !important;
+  background-color: color-mix(in oklab, var(--ui-surface-elev) 88%, var(--ui-brand-brown-soft)) !important;
+  background-image: none !important;
+  color: var(--ui-brand-brown) !important;
+  border: 1px solid color-mix(in oklab, var(--ui-brand-brown) 42%, var(--ui-border)) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+  border-radius: 9999px !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  line-height: 1.25rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.amini-header-wallet [data-testid="ockConnectButton"]:hover,
+.amini-header-wallet [data-testid="ockConnectAccountButtonInner"]:hover {
+  background-color: color-mix(in oklab, var(--ui-surface-elev) 78%, var(--ui-brand-brown-soft)) !important;
+  border-color: var(--ui-brand-brown) !important;
+}
+
+.amini-header-wallet [data-testid="ockConnectButton"]:active,
+.amini-header-wallet [data-testid="ockConnectButton"]:focus-visible,
+.amini-header-wallet [data-testid="ockConnectAccountButtonInner"]:focus-visible {
+  background-color: color-mix(in oklab, var(--ui-surface-elev) 72%, var(--ui-brand-brown-soft)) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px var(--ui-focus-ring) !important;
+}
+
+.amini-header-wallet [data-testid="ockConnectWallet_Connected"] {
+  height: 40px !important;
+  min-height: 40px !important;
+  min-width: auto !important;
+  padding: 0 16px !important;
+  border-radius: 9999px !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  background-color: color-mix(in oklab, var(--ui-surface-elev) 92%, var(--ui-brand-brown-soft)) !important;
+  color: var(--ui-text) !important;
+  border: 1px solid color-mix(in oklab, var(--ui-brand-brown) 28%, var(--ui-border)) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}

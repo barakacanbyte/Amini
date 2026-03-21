@@ -1,0 +1,11 @@
+{
+  "filter_paths": ["lib/", "test/", "script/"],
+  "solc_remaps": [
+    "forge-std/=lib/forge-std/src/"
+  ],
+  "detectors_to_exclude": [
+    "naming-convention",
+    "solc-version",
+    "pragma"
+  ]
+}

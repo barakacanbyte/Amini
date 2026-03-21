@@ -1,0 +1,15 @@
+node_modules
+.env
+.env.local
+*.log
+.DS_Store
+dist
+.next
+out
+coverage
+*.key
+*.keyfile
+packages/contracts/out
+packages/contracts/cache
+packages/contracts/broadcast
+packages/frontend/.next

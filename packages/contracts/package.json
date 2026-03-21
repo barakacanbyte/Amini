@@ -1,0 +1,9 @@
+{
+  "name": "@amini/contracts",
+  "version": "0.1.0",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "test:coverage": "forge coverage"
+  }
+}

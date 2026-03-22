@@ -12,14 +12,14 @@ export interface Milestone {
   title: string;
   description?: string;
   amount: string; // wei or human amount
-  evidenceHash?: string; // e.g. Arweave tx or hash of proof
+  evidenceHash?: string; // e.g. IPFS CID or hash of proof
 }
 
 export interface CampaignMeta {
   title: string;
   description: string;
   imageUrl?: string;
-  metadataUri?: string; // Arweave / IPFS
+  metadataUri?: string; // IPFS (e.g. ipfs://...) or HTTPS
   milestones: Milestone[];
 }
 

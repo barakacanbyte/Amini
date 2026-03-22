@@ -1,4 +1,5 @@
-import Arweave from "arweave";
+import { randomBytes } from "node:crypto";
+import { uploadBufferToIpfs } from "@/lib/filebaseUpload";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,11 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   "application/pdf",
   "text/plain",
 ]);
+
+function objectKey(prefix: string, filename: string) {
+  const id = randomBytes(8).toString("hex");
+  return `${prefix}/${Date.now()}-${id}-${filename}`;
+}
 
 export async function POST(req: Request) {
   try {
@@ -68,35 +74,7 @@ export async function POST(req: Request) {
       return badRequest("txHashLink must be a valid 0x tx hash.");
     }
 
-    const walletJson = process.env.ARWEAVE_WALLET_JSON;
-    if (!walletJson) {
-      return badRequest(
-        "ARWEAVE_WALLET_JSON is not configured. Add Arweave wallet JWK JSON in env.",
-        500
-      );
-    }
-
-    const jwk = JSON.parse(walletJson) as {
-      kty: string;
-      e: string;
-      n: string;
-      d: string;
-      p: string;
-      q: string;
-      dp: string;
-      dq: string;
-      qi: string;
-    };
-    if (!jwk.kty || !jwk.n || !jwk.e || !jwk.d) {
-      return badRequest("Invalid ARWEAVE_WALLET_JSON JWK format.", 500);
-    }
-    const arweave = Arweave.init({
-      host: process.env.ARWEAVE_HOST ?? "arweave.net",
-      port: Number(process.env.ARWEAVE_PORT ?? 443),
-      protocol: process.env.ARWEAVE_PROTOCOL ?? "https",
-    });
-
-    let attachmentTxId: string | null = null;
+    let attachmentCid: string | null = null;
     let attachmentUrl: string | null = null;
 
     if (payload.file) {
@@ -108,29 +86,21 @@ export async function POST(req: Request) {
           "Unsupported attachment type. Allowed: JPEG, PNG, WEBP, PDF, TXT."
         );
       }
-      const buffer = await payload.file.arrayBuffer();
-      const binaryTx = await arweave.createTransaction(
-        { data: new Uint8Array(buffer) },
-        jwk
+      const buffer = Buffer.from(await payload.file.arrayBuffer());
+      const ext = payload.file.name?.includes(".")
+        ? payload.file.name.slice(payload.file.name.lastIndexOf("."))
+        : ".bin";
+      const attKey = objectKey(
+        `impact/${payload.campaignId}/attachments`,
+        `file${ext}`,
       );
-      binaryTx.addTag(
-        "Content-Type",
-        payload.file.type || "application/octet-stream"
-      );
-      binaryTx.addTag("App-Name", "Amini");
-      binaryTx.addTag("App-Version", "0.1.0");
-      binaryTx.addTag("Amini-Campaign-Id", String(payload.campaignId));
-      binaryTx.addTag("Amini-Attachment", "true");
-      await arweave.transactions.sign(binaryTx, jwk);
-      const binaryPostRes = await arweave.transactions.post(binaryTx);
-      if (![200, 202].includes(binaryPostRes.status)) {
-        return badRequest(
-          `Arweave attachment upload failed with status ${binaryPostRes.status}`,
-          502
-        );
+      try {
+        const att = await uploadBufferToIpfs(attKey, buffer);
+        attachmentCid = att.cid;
+        attachmentUrl = att.gatewayUrl;
+      } catch (e) {
+        return badRequest((e as Error).message, 500);
       }
-      attachmentTxId = binaryTx.id;
-      attachmentUrl = `${process.env.ARWEAVE_GATEWAY_URL ?? "https://arweave.net"}/${binaryTx.id}`;
     }
 
     const data = JSON.stringify({
@@ -139,30 +109,23 @@ export async function POST(req: Request) {
       authorWallet: payload.authorWallet,
       body: payload.body,
       txHashLink: payload.txHashLink ?? null,
-      attachmentTxId,
+      attachmentCid,
       attachmentUrl,
       attachmentName: payload.file?.name ?? null,
       attachmentContentType: payload.file?.type ?? null,
       createdAt: new Date().toISOString(),
     });
 
-    const tx = await arweave.createTransaction({ data }, jwk);
-    tx.addTag("Content-Type", "application/json");
-    tx.addTag("App-Name", "Amini");
-    tx.addTag("App-Version", "0.1.0");
-    tx.addTag("Amini-Campaign-Id", String(payload.campaignId));
-    if (payload.milestoneIndex !== undefined) {
-      tx.addTag("Amini-Milestone-Index", String(payload.milestoneIndex));
+    const jsonKey = objectKey(`impact/${payload.campaignId}/posts`, "post.json");
+    let ipfsCid: string;
+    let ipfsUrl: string;
+    try {
+      const main = await uploadBufferToIpfs(jsonKey, Buffer.from(data, "utf-8"));
+      ipfsCid = main.cid;
+      ipfsUrl = main.gatewayUrl;
+    } catch (e) {
+      return badRequest((e as Error).message, 500);
     }
-
-    await arweave.transactions.sign(tx, jwk);
-    const postRes = await arweave.transactions.post(tx);
-    if (![200, 202].includes(postRes.status)) {
-      return badRequest(`Arweave upload failed with status ${postRes.status}`, 502);
-    }
-
-    const gateway = process.env.ARWEAVE_GATEWAY_URL ?? "https://arweave.net";
-    const arweaveUrl = `${gateway}/${tx.id}`;
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -182,9 +145,9 @@ export async function POST(req: Request) {
           milestone_index: payload.milestoneIndex ?? null,
           author_wallet: payload.authorWallet.toLowerCase(),
           body: payload.body,
-          arweave_tx_id: tx.id,
-          arweave_url: arweaveUrl,
-          attachment_tx_id: attachmentTxId,
+          ipfs_cid: ipfsCid,
+          ipfs_url: ipfsUrl,
+          attachment_cid: attachmentCid,
           attachment_url: attachmentUrl,
           attachment_name: payload.file?.name ?? null,
           attachment_content_type: payload.file?.type ?? null,
@@ -196,9 +159,9 @@ export async function POST(req: Request) {
 
     return Response.json({
       ok: true,
-      arweaveTxId: tx.id,
-      arweaveUrl,
-      attachmentTxId,
+      ipfsCid,
+      ipfsUrl,
+      attachmentCid,
       attachmentUrl,
       attachmentName: payload.file?.name ?? null,
       attachmentContentType: payload.file?.type ?? null,
@@ -211,4 +174,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

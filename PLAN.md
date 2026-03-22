@@ -41,7 +41,7 @@ amini/
 | **2** | EAS layer | Schema + integration with escrow release |
 | **3** | Frontend core | Wallet connect, dashboard, campaign CRUD, USDC transfer |
 | **4** | Indexing & data | Supabase schema, indexer, fund flow data |
-| **5** | Arweave & impact | Post impact + receipts to Arweave, link to txs |
+| **5** | IPFS (Filebase) & impact | Post impact + receipts to IPFS, link to txs |
 | **6** | XMTP | Wallet-to-wallet messaging scoped to campaigns |
 | **7** | Superfluid | Optional streaming escrow/disbursement |
 | **8** | Reputation & Sybil | Worldcoin/EAS social + reputation scoring |
@@ -56,7 +56,7 @@ amini/
 - [ ] **Frontend**: Next.js 14+ (App Router), TypeScript, Tailwind; add shared package as dependency.
 - [ ] **Shared**: Define base types (Campaign, Milestone, WalletAddress, etc.); no runtime deps on chain.
 - [ ] **EAS package**: Node/TS package; EAS schema JSON; dependency on `shared` for types.
-- [ ] `.env.example`: `NEXT_PUBLIC_CHAIN_ID`, `NEXT_PUBLIC_USDC`, `NEXT_PUBLIC_ESCROW`, `NEXT_PUBLIC_EAS`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `ARWEAVE_*`, `XMTP_*`, `WORLDSCOIN_*`, etc.
+- [ ] `.env.example`: `NEXT_PUBLIC_CHAIN_ID`, `NEXT_PUBLIC_USDC`, `NEXT_PUBLIC_ESCROW`, `NEXT_PUBLIC_EAS`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `FILEBASE_*`, `XMTP_*`, `WORLDSCOIN_*`, etc.
 - [ ] ESLint, Prettier, and (optional) Turborepo for task orchestration.
 
 **Deliverable:** Monorepo where `pnpm build` builds contracts + frontend + shared; `pnpm dev` runs frontend.
@@ -66,7 +66,7 @@ amini/
 ## 4. Phase 1 — Core smart contracts
 
 - [ ] **USDC**: Use existing USDC on Base; no custom token. Configure address in shared + env.
-- [ ] **Campaign registry**: Contract that emits `CampaignCreated(campaignId, owner, targetAmount, milestonesCount, ...)`. Store minimal on-chain data (owner, target, currency, milestone count); optional: IPFS/Arweave URI for metadata.
+- [ ] **Campaign registry**: Contract that emits `CampaignCreated(campaignId, owner, targetAmount, milestonesCount, ...)`. Store minimal on-chain data (owner, target, currency, milestone count); optional: IPFS URI for metadata.
 - [ ] **Escrow contract**:
   - Accept USDC; support one escrow per campaign (or per campaign+milestone depending on design).
   - State: campaign id, beneficiary, amounts per milestone, current milestone index.
@@ -98,10 +98,10 @@ amini/
 
 - [ ] **Wallet connection**: Coinbase Smart Wallet + CDP embedded wallet (OnchainKit + wagmi; chain: Base).
 - [ ] **Dashboard**: After connect, show list of “My campaigns” (created or funded); link to create campaign and to explorer.
-- [ ] **Create campaign**: Form: title, description, target amount (USDC), beneficiary address, list of milestones (description, amount per milestone). On submit: create campaign in registry (if needed), then optionally create escrow record; store metadata (title, description) on Arweave or in Supabase and link from chain (recommend Supabase for speed, Arweave for critical proof).
+- [ ] **Create campaign**: Form: title, description, target amount (USDC), beneficiary address, list of milestones (description, amount per milestone). On submit: create campaign in registry (if needed), then optionally create escrow record; store metadata (title, description) on IPFS or in Supabase and link from chain (recommend Supabase for speed, IPFS for critical proof).
 - [ ] **Campaign page**: Show campaign details, milestones, funding progress; “Fund with USDC” button that triggers USDC approval + transfer to escrow.
 - [ ] **USDC transfer**: Use wagmi/viem to call USDC.approve + Escrow.deposit (or equivalent); show tx status and success state.
-- [ ] **Recipient view**: For beneficiary wallet: list milestones; “Mark complete” triggers flow: upload proof to Arweave (Phase 5) → then “Request attestation” (validator signs EAS) → then “Release” (contract checks EAS and releases). Alternatively “Release” is single button that backend/validator uses after attestation.
+- [ ] **Recipient view**: For beneficiary wallet: list milestones; “Mark complete” triggers flow: upload proof to IPFS (Phase 5) → then “Request attestation” (validator signs EAS) → then “Release” (contract checks EAS and releases). Alternatively “Release” is single button that backend/validator uses after attestation.
 - [ ] **Branding**: Apply palette (Midnight Indigo, Emerald Signal, Solar Amber, Cloud White, Slate Graphite); Inter or Manrope; minimalist explorer aesthetic.
 
 **Deliverable:** Users can connect wallet, create campaigns, fund with USDC, and (with validator) complete milestone flow with EAS and release.
@@ -121,14 +121,14 @@ amini/
 
 ---
 
-## 8. Phase 5 — Arweave and impact feed
+## 8. Phase 5 — IPFS (Filebase) and impact feed
 
-- [ ] **Upload pipeline**: When recipient (or validator) adds “impact post” (text + optional image/receipt): build JSON or structured data; upload to Arweave (e.g. via Bundlr or Arweave SDK); get tx id.
-- [ ] **Link to chain**: Store `arweave_tx_id` in Supabase (e.g. `impact_posts` table: campaign_id, milestone_id, author_wallet, arweave_tx_id, tx_hash_link, created_at). Optionally store same id on-chain in next milestone attestation or in a separate “proof” contract if needed.
-- [ ] **Impact feed UI**: On campaign page, “Impact” section: list posts from Supabase; each post links to Arweave permalink and to related on-chain tx; show photo/receipt if stored in Arweave.
-- [ ] **Receipts**: Same pipeline for “receipt” uploads (e.g. proof of purchase); permanent on Arweave; reference in EAS evidence_hash or in metadata.
+- [ ] **Upload pipeline**: When recipient (or validator) adds “impact post” (text + optional image/receipt): build JSON or structured data; upload to IPFS (e.g. Filebase S3 API); get CID.
+- [ ] **Link to chain**: Store `ipfs_cid` in Supabase (e.g. `impact_posts` table: campaign_id, milestone_id, author_wallet, ipfs_cid, tx_hash_link, created_at). Optionally store same id on-chain in next milestone attestation or in a separate “proof” contract if needed.
+- [ ] **Impact feed UI**: On campaign page, “Impact” section: list posts from Supabase; each post links to IPFS gateway URL and to related on-chain tx; show photo/receipt if stored on IPFS.
+- [ ] **Receipts**: Same pipeline for “receipt” uploads (e.g. proof of purchase); pinned on IPFS; reference in EAS evidence_hash or in metadata.
 
-**Deliverable:** Impact posts and receipts stored on Arweave; feed on campaign page with permanent links and tx association.
+**Deliverable:** Impact posts and receipts stored on IPFS; feed on campaign page with permanent links and tx association.
 
 ---
 
@@ -170,8 +170,8 @@ amini/
 - [ ] **Fund flow visualization**: Refine UI (e.g. Sankey or step diagram) from Supabase data; real-time feel (poll every 2–5s).
 - [ ] **QR donation links**: Per-campaign short link; QR code generation; link opens campaign page with “Fund” CTA pre-focused.
 - [ ] **Explorer**: Search, filters, sort; campaign cards with progress; link to Base Scan for every tx.
-- [ ] **Demo script**: Align with “Hackathon Demo Flow” in system prompt: connect wallet → create campaign → send USDC → show fund flow → impact post (Arweave) → validator attestation (EAS) → escrow release → XMTP thread → reputation (with Sybil).
-- [ ] **Docs**: Short README (run frontend, deploy contracts, env vars); architecture diagram; “Constraints” section (oracle, XMTP in-app, Supabase centralized, Arweave not IPFS).
+- [ ] **Demo script**: Align with “Hackathon Demo Flow” in system prompt: connect wallet → create campaign → send USDC → show fund flow → impact post (IPFS) → validator attestation (EAS) → escrow release → XMTP thread → reputation (with Sybil).
+- [ ] **Docs**: Short README (run frontend, deploy contracts, env vars); architecture diagram; “Constraints” section (oracle, XMTP in-app, Supabase centralized, IPFS via Filebase).
 
 **Deliverable:** Demo-ready app with QR, explorer, and documented constraints.
 
@@ -185,7 +185,7 @@ Phase 0 (repo)
   → Phase 2 (EAS) 
   → Phase 3 (frontend core) 
   → Phase 4 (indexing) — can start after 1
-  → Phase 5 (Arweave) — after 3
+  → Phase 5 (IPFS / impact) — after 3
   → Phase 6 (XMTP) — after 3
   → Phase 7 (Superfluid) — after 1, 3
   → Phase 8 (Reputation) — after 2, 4
@@ -193,7 +193,7 @@ Phase 0 (repo)
 ```
 
 - **Critical path:** 0 → 1 → 2 → 3 (must work for “core demo”).
-- **Parallel after 3:** 4 (indexer), 5 (Arweave), 6 (XMTP); then 7, 8, 9.
+- **Parallel after 3:** 4 (indexer), 5 (IPFS / impact), 6 (XMTP); then 7, 8, 9.
 
 ---
 
@@ -203,7 +203,7 @@ Phase 0 (repo)
 - `NEXT_PUBLIC_USDC_ADDRESS`, `NEXT_PUBLIC_ESCROW_ADDRESS`, `NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS`
 - `NEXT_PUBLIC_EAS_PORTAL_ADDRESS`, `NEXT_PUBLIC_EAS_SCHEMA_UID`
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (for indexer)
-- `ARWEAVE_KEYFILE` or Bundlr/Arweave API keys
+- `FILEBASE_ACCESS_KEY` / `FILEBASE_SECRET_KEY` / `FILEBASE_BUCKET` (IPFS pinning)
 - XMTP env (per SDK docs)
 - Worldcoin / EAS social app ids and secrets (for Phase 8)
 - Superfluid host/subgraph URLs for Base (Phase 7)
@@ -216,7 +216,7 @@ Phase 0 (repo)
 - [ ] Campaign creation and escrow with milestone-based release.
 - [ ] Milestone release gated **only** by valid EAS attestation (no manual backdoor).
 - [ ] Fund flow visualization from Supabase; public explorer.
-- [ ] Impact posts and receipts on Arweave; linked to campaigns/txs.
+- [ ] Impact posts and receipts on IPFS; linked to campaigns/txs.
 - [ ] XMTP messaging per campaign (in-app).
 - [ ] Optional Superfluid streaming path.
 - [ ] Reputation from EAS attestations with Sybil layer (Worldcoin or EAS social).

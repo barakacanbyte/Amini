@@ -88,9 +88,9 @@ export default function CampaignPage() {
       milestone_index: number | null;
       author_wallet: string;
       body: string;
-      arweave_tx_id: string;
-      arweave_url: string;
-      attachment_tx_id: string | null;
+      ipfs_cid: string;
+      ipfs_url: string;
+      attachment_cid: string | null;
       attachment_url: string | null;
       attachment_name: string | null;
       attachment_content_type: string | null;
@@ -162,7 +162,7 @@ export default function CampaignPage() {
           { headers, cache: "no-store" }
         );
         const impactRes = await fetch(
-          `${supabaseUrl}/rest/v1/impact_posts?select=id,milestone_index,author_wallet,body,arweave_tx_id,arweave_url,attachment_tx_id,attachment_url,attachment_name,attachment_content_type,tx_hash_link,created_at&campaign_id=eq.${id}&order=id.desc&limit=100`,
+          `${supabaseUrl}/rest/v1/impact_posts?select=id,milestone_index,author_wallet,body,ipfs_cid,ipfs_url,attachment_cid,attachment_url,attachment_name,attachment_content_type,tx_hash_link,created_at&campaign_id=eq.${id}&order=id.desc&limit=100`,
           { headers, cache: "no-store" }
         );
         if (depRes.ok) {
@@ -179,9 +179,9 @@ export default function CampaignPage() {
             milestone_index: number | null;
             author_wallet: string;
             body: string;
-            arweave_tx_id: string;
-            arweave_url: string;
-            attachment_tx_id: string | null;
+            ipfs_cid: string;
+            ipfs_url: string;
+            attachment_cid: string | null;
             attachment_url: string | null;
             attachment_name: string | null;
             attachment_content_type: string | null;
@@ -278,18 +278,18 @@ export default function CampaignPage() {
       const json = (await res.json()) as {
         ok: boolean;
         message?: string;
-        arweaveTxId?: string;
-        arweaveUrl?: string;
-        attachmentTxId?: string | null;
+        ipfsCid?: string;
+        ipfsUrl?: string;
+        attachmentCid?: string | null;
         attachmentUrl?: string | null;
         attachmentName?: string | null;
         attachmentContentType?: string | null;
       };
-      if (!res.ok || !json.ok || !json.arweaveTxId || !json.arweaveUrl) {
+      if (!res.ok || !json.ok || !json.ipfsCid || !json.ipfsUrl) {
         throw new Error(json.message ?? "Failed to publish impact post.");
       }
-      const arweaveTxId = json.arweaveTxId;
-      const arweaveUrl = json.arweaveUrl;
+      const ipfsCid = json.ipfsCid;
+      const ipfsUrl = json.ipfsUrl;
 
       setImpactPosts((prev) => [
         {
@@ -298,9 +298,9 @@ export default function CampaignPage() {
             impactMilestone.trim() === "" ? null : Number(impactMilestone.trim()),
           author_wallet: address.toLowerCase(),
           body: impactBody.trim(),
-          arweave_tx_id: arweaveTxId,
-          arweave_url: arweaveUrl,
-          attachment_tx_id: json.attachmentTxId ?? null,
+          ipfs_cid: ipfsCid,
+          ipfs_url: ipfsUrl,
+          attachment_cid: json.attachmentCid ?? null,
           attachment_url: json.attachmentUrl ?? null,
           attachment_name: json.attachmentName ?? null,
           attachment_content_type: json.attachmentContentType ?? null,
@@ -760,9 +760,9 @@ export default function CampaignPage() {
         </div>
 
         <div className={panelClass}>
-          <h2 className={headingClass}>Impact Feed (Arweave)</h2>
+          <h2 className={headingClass}>Impact Feed (IPFS)</h2>
           <p className={`${mutedClass} mb-3`}>
-            Post proof/updates for this campaign. Entries are uploaded to Arweave and
+            Post proof/updates for this campaign. Entries are pinned to IPFS (Filebase) and
             indexed in Supabase.
           </p>
           {isConnected && (
@@ -822,12 +822,12 @@ export default function CampaignPage() {
                   </p>
                   <div className="mt-1 flex flex-wrap gap-3 text-xs">
                     <a
-                      href={p.arweave_url}
+                      href={p.ipfs_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="brand-brown hover:underline"
                     >
-                      Arweave: {p.arweave_tx_id.slice(0, 10)}...
+                      IPFS: {p.ipfs_cid.slice(0, 10)}...
                     </a>
                     {p.attachment_url && (
                       <a

@@ -89,7 +89,7 @@ export default function AdminHomePage() {
           Environment checklist
         </TextBody>
         <TextBody as="p" className="app-muted mt-1">
-          Contracts, Supabase, Arweave wallet JSON, and World ID keys live in your env files (see{" "}
+          Contracts, Supabase, Filebase IPFS keys, and World ID keys live in your env files (see{" "}
           <code className="rounded bg-black/20 px-1 py-0.5 text-xs">.env.example</code>
           ). The indexer must be running for activity search to stay current.
         </TextBody>

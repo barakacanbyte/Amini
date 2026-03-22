@@ -18,7 +18,7 @@ const activityItems = [
   },
   {
     title: "Supplies for School Meals",
-    status: "ARWEAVE RECEIPT: Permanent evidence uploaded",
+    status: "IPFS RECEIPT: Permanent evidence uploaded",
     meta: "View transactions",
   },
 ];
@@ -80,7 +80,7 @@ export default function HomePage() {
               <ul className="app-text space-y-2 text-sm">
                 <li>• Real-time Superfluid streaming feed</li>
                 <li>• EAS-verified milestone attestations</li>
-                <li>• Arweave-backed permanent receipts</li>
+                <li>• IPFS-backed permanent receipts (Filebase)</li>
                 <li>• Transparent tranche release history</li>
               </ul>
 
@@ -132,7 +132,7 @@ export default function HomePage() {
 
         <footer className="app-surface-elev border-x-0 border-b-0 px-6 py-4 text-center">
           <TextCaption as="p">
-            Powered by EAS, Superfluid, XMTP, Arweave, and World ID
+            Powered by EAS, Superfluid, XMTP, IPFS (Filebase), and World ID
           </TextCaption>
           <TextCaption as="p" className="mt-2">
             <Link

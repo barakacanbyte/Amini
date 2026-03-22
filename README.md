@@ -8,6 +8,7 @@ Web3 platform for transparent, traceable fund transfers using stablecoins on Bas
 - **packages/shared** — Shared TypeScript types and chain config
 - **packages/eas-schemas** — EAS schema definitions and encode/decode helpers
 - **packages/frontend** — Next.js dashboard (Coinbase Smart Wallet / CDP, OnchainKit, wagmi, Base)
+- **supabase/** — Postgres schema snapshot ([`supabase/schema.sql`](./supabase/schema.sql)) and ordered migrations ([`supabase/migrations/`](./supabase/migrations/)); see [`supabase/README.md`](./supabase/README.md)
 
 ## Prerequisites
 
@@ -34,6 +35,10 @@ Copy `.env.example` to `.env` and set:
 
 You can check readiness via `GET /api/world-id/health`.
 There is also an in-app debug view at `/debug/world-id`.
+
+**Database** — apply migrations in [`supabase/migrations/`](./supabase/migrations/) to your Supabase project (see [`supabase/README.md`](./supabase/README.md)). Regenerate a local snapshot with `pnpm db:dump-schema` (requires `SUPABASE_DB_URL` or `DATABASE_URL`).
+
+**IPFS (Filebase)** — for impact posts and other server uploads, set `FILEBASE_ACCESS_KEY`, `FILEBASE_SECRET_KEY`, and `FILEBASE_BUCKET` (see [`.env.example`](./.env.example)). If your database still uses legacy `arweave_*` column names on `impact_posts`, apply [`supabase/migrations/20250101000004_legacy_rename_arweave_columns_to_ipfs.sql`](./supabase/migrations/20250101000004_legacy_rename_arweave_columns_to_ipfs.sql) (idempotent).
 
 ## Build & test
 
@@ -64,7 +69,7 @@ forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast --verify
 
 ## Plan
 
-See [PLAN.md](./PLAN.md) for the full build plan (indexing, Arweave, XMTP, Superfluid, reputation).
+See [PLAN.md](./PLAN.md) for the full build plan (indexing, IPFS/Filebase, XMTP, Superfluid, reputation).
 
 ## Demo docs
 

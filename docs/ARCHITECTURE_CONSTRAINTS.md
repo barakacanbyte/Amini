@@ -7,7 +7,7 @@ This document makes explicit the current trade-offs in the Amini implementation.
 - **Supabase is centralized infra**: index/state queries depend on Supabase availability.
 - **XMTP is in-app only**: no push notification service is included.
 - **Sybil verification source**: reputation visibility depends on a World ID verification record in `sybil_verifications`.
-- **Arweave uploads are server-mediated**: uploads go through frontend API routes with configured wallet credentials.
+- **IPFS uploads are server-mediated (Filebase)**: uploads go through frontend API routes with configured Filebase S3 credentials; content is pinned to IPFS.
 - **Indexer eventual consistency**: explorer/feed updates are near-real-time, not instant.
 
 ## Security and trust assumptions

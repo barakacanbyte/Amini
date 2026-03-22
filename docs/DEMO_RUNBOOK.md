@@ -5,7 +5,7 @@ This runbook follows the intended hackathon demo flow from campaign setup throug
 ## Prerequisites
 
 - Deployed contracts on Base (or Base Sepolia) and env vars configured.
-- Supabase schema applied (`docs/supabase-schema.sql`).
+- Supabase schema applied (see [`supabase/migrations/`](../supabase/migrations/) and [`supabase/README.md`](../supabase/README.md)).
 - Indexer running (`pnpm --filter indexer dev`).
 - Frontend running (`pnpm dev`).
 
@@ -19,7 +19,7 @@ This runbook follows the intended hackathon demo flow from campaign setup throug
 6. Create an EAS milestone attestation and release milestone funds.
 7. Show indexed transparency:
    - fund flow timeline (deposits/releases),
-   - impact feed with Arweave permalink,
+   - impact feed with IPFS (Filebase) permalink,
    - explorer search results.
 8. Initialize XMTP and send campaign-scoped messages.
 9. Show reputation panel (visible only when Sybil verification exists).
@@ -28,5 +28,5 @@ This runbook follows the intended hackathon demo flow from campaign setup throug
 
 - Milestone releases are gated by EAS attestations.
 - Fund flow is publicly auditable via Base tx links and explorer queries.
-- Evidence is persistent on Arweave.
+- Evidence is pinned on IPFS (Filebase).
 - Reputation is intentionally Sybil-gated.

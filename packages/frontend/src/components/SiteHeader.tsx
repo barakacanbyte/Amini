@@ -18,6 +18,7 @@ const cdpConfigured = Boolean((process.env.NEXT_PUBLIC_CDP_PROJECT_ID ?? "").tri
 
 const NAV_ITEMS = [
   { href: "/#overview", label: "Overview", match: (path: string) => path === "/" },
+  { href: "/dashboard/donor", label: "Dashboard", match: (path: string) => path.startsWith("/dashboard") },
   { href: "/campaigns", label: "Campaigns", match: (path: string) => path.startsWith("/campaigns") },
   { href: "/explorer", label: "Activity feed", match: (path: string) => path === "/explorer" },
 ] as const;
@@ -49,6 +50,11 @@ function NavLink({
 
 export function SiteHeader() {
   const pathname = usePathname();
+
+  // Hide SiteHeader on dashboard routes to allow full-height sidebar
+  if (pathname?.startsWith("/dashboard")) {
+    return null;
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-[var(--ui-bg)]/95 backdrop-blur">

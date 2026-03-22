@@ -1,3 +1,6 @@
+# Local symlink created by scripts/repair-forge-std-gitdir.sh (points at forge-std git dir)
+.forge-std-gitdir
+
 node_modules
 .env
 .env.local

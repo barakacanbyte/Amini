@@ -299,3 +299,66 @@
   align-items: center !important;
   justify-content: center !important;
 }
+
+/*
+ * CDP header auth — “Log in” = brown pill; signed-in = `sign-out-button` (matches connected chip).
+ */
+.amini-header-wallet .amini-header-cdp-login button:not([class*="sign-out-button"]) {
+  height: 40px !important;
+  min-height: 40px !important;
+  min-width: auto !important;
+  width: auto !important;
+  max-width: 220px;
+  padding: 0 16px !important;
+  background-color: color-mix(in oklab, var(--ui-surface-elev) 88%, var(--ui-brand-brown-soft)) !important;
+  background-image: none !important;
+  color: var(--ui-brand-brown) !important;
+  border: 1px solid color-mix(in oklab, var(--ui-brand-brown) 42%, var(--ui-border)) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+  border-radius: 9999px !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  line-height: 1.25rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.amini-header-wallet .amini-header-cdp-login button:not([class*="sign-out-button"]):hover {
+  background-color: color-mix(in oklab, var(--ui-surface-elev) 78%, var(--ui-brand-brown-soft)) !important;
+  border-color: var(--ui-brand-brown) !important;
+}
+
+.amini-header-wallet .amini-header-cdp-login button:not([class*="sign-out-button"]):focus-visible {
+  background-color: color-mix(in oklab, var(--ui-surface-elev) 72%, var(--ui-brand-brown-soft)) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px var(--ui-focus-ring) !important;
+}
+
+.amini-header-wallet .amini-header-cdp-login button[class*="sign-out-button"] {
+  height: 40px !important;
+  min-height: 40px !important;
+  min-width: auto !important;
+  max-width: 220px;
+  padding: 0 16px !important;
+  border-radius: 9999px !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  line-height: 1.25rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background-color: color-mix(in oklab, var(--ui-surface-elev) 92%, var(--ui-brand-brown-soft)) !important;
+  color: var(--ui-text) !important;
+  border: 1px solid color-mix(in oklab, var(--ui-brand-brown) 28%, var(--ui-border)) !important;
+}
+
+.amini-header-wallet .amini-header-cdp-login button[class*="sign-out-button"]:hover {
+  border-color: var(--ui-brand-brown) !important;
+}
+
+/* CDP SignIn modal (Radix) portals to body — sit above sticky header (z-50) */
+body [data-radix-dialog-overlay],
+body [data-radix-dialog-content] {
+  z-index: 100 !important;
+}

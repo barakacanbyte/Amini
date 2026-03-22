@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { HStack } from "@coinbase/cds-web/layout";
 import { TextTitle1 } from "@coinbase/cds-web/typography/TextTitle1";
+import { TextTitle2 } from "@coinbase/cds-web/typography/TextTitle2";
 import { TextBody } from "@coinbase/cds-web/typography/TextBody";
 import { TextCaption } from "@coinbase/cds-web/typography/TextCaption";
 import { TextLabel2 } from "@coinbase/cds-web/typography/TextLabel2";
@@ -30,14 +31,22 @@ export default function HomePage() {
           id="overview"
           className="scroll-mt-24 px-6 pb-8 pt-10 md:px-10 md:pb-10 md:pt-12"
         >
-          <TextLabel2 as="p" className="brand-brown text-center uppercase tracking-[0.18em]">
-            Amini Impact Layer
-          </TextLabel2>
-          <TextTitle1 as="h1" className="app-text mx-auto mt-3 max-w-4xl text-center">
-            See Your Impact, <span className="brand-green">Second by Second.</span>
-            <br />
-            Believe and <span className="brand-brown">Fund Change</span>
-          </TextTitle1>
+          <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
+            <TextLabel2
+              as="p"
+              className="brand-brown block w-full uppercase tracking-[0.18em]"
+            >
+              Amini Impact Layer
+            </TextLabel2>
+            <TextTitle1
+              as="h1"
+              className="app-text mt-4 block w-full text-4xl font-bold leading-[1.1] tracking-tight sm:text-5xl md:text-6xl"
+            >
+              See Your Impact, <span className="brand-green">Second by Second.</span>
+              <br />
+              Believe and <span className="brand-brown">Fund Change</span>
+            </TextTitle1>
+          </div>
 
           <div className="app-surface-elev relative mt-8 aspect-[16/10] w-full overflow-hidden rounded-2xl shadow-inner md:aspect-[21/9]">
             <Image
@@ -58,9 +67,9 @@ export default function HomePage() {
                 "linear-gradient(90deg, color-mix(in oklab, var(--ui-brand-brown-soft) 88%, transparent), color-mix(in oklab, var(--ui-brand-green) 24%, var(--ui-surface)))",
             }}
           >
-            <TextTitle1 as="p" className="app-text !leading-none">
+            <TextTitle2 as="p" className="app-text text-2xl font-bold leading-tight md:text-4xl">
               Track Your Funding
-            </TextTitle1>
+            </TextTitle2>
             <TextBody as="p" className="app-muted mt-1">
               Real-Time Onchain + Superfluid Streams
             </TextBody>

@@ -6,12 +6,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { CdpEmbeddedAuth } from "@/components/CdpEmbeddedAuth";
 import {
   Wallet,
   ConnectWallet,
   WalletDropdown,
   WalletDropdownDisconnect,
 } from "@coinbase/onchainkit/wallet";
+
+const cdpConfigured = Boolean((process.env.NEXT_PUBLIC_CDP_PROJECT_ID ?? "").trim());
 
 const NAV_ITEMS = [
   { href: "/#overview", label: "Overview", match: (path: string) => path === "/" },
@@ -80,12 +83,21 @@ export function SiteHeader() {
 
           <div className="header-actions amini-header-wallet shrink-0">
             <ThemeToggle />
-            <Wallet>
-              <ConnectWallet disconnectedLabel="Log in" />
-              <WalletDropdown>
-                <WalletDropdownDisconnect />
-              </WalletDropdown>
-            </Wallet>
+            {cdpConfigured ? (
+              <div
+                className="amini-header-cdp-login flex shrink-0 items-center"
+                aria-label="Account"
+              >
+                <CdpEmbeddedAuth />
+              </div>
+            ) : (
+              <Wallet>
+                <ConnectWallet disconnectedLabel="Log in" />
+                <WalletDropdown>
+                  <WalletDropdownDisconnect />
+                </WalletDropdown>
+              </Wallet>
+            )}
 
             <Button
               as={Link}

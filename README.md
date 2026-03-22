@@ -23,6 +23,7 @@ pnpm install
 Copy `.env.example` to `.env` and set:
 
 - `NEXT_PUBLIC_CDP_PROJECT_ID` and `NEXT_PUBLIC_CDP_API_KEY` (Coinbase Developer Platform). The project id enables the **CDP embedded wallet** (in-app / passkey smart wallet); without it, local builds use a Coinbase Wallet fallback only.
+- **CDP embedded wallet details** (email login, Base + Base Sepolia, portal allowlist): [docs/CDP_EMBEDDED_WALLET.md](./docs/CDP_EMBEDDED_WALLET.md).
 - Contract addresses after deploy (see below)
 - World ID config for Sybil verification:
   - `NEXT_PUBLIC_WORLDCOIN_APP_ID`

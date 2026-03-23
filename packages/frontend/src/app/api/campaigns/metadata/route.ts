@@ -1,4 +1,4 @@
-import Arweave from "arweave";
+import { uploadBufferToIpfs, isFilebaseConfigured } from "@/lib/filebaseUpload";
 
 export const runtime = "nodejs";
 
@@ -18,9 +18,9 @@ function err(message: string, status = 400) {
  * POST /api/campaigns/metadata
  *
  * Accepts multipart form data with campaign metadata fields and an optional
- * image file. Uploads both to Arweave and returns the metadata URI + image URL.
+ * image file. Uploads both via Filebase IPFS and returns the metadata IPFS URI + image URL.
  *
- * If Arweave is not configured, returns a deterministic placeholder URI so the
+ * If Filebase is not configured, returns a deterministic placeholder URI so the
  * on-chain call can still proceed.
  */
 export async function POST(req: Request) {
@@ -31,36 +31,38 @@ export async function POST(req: Request) {
     const description = String(form.get("description") ?? "").trim();
     const milestonesRaw = String(form.get("milestones") ?? "[]");
     const region = String(form.get("region") ?? "").trim() || null;
-    const cause = String(form.get("cause") ?? "").trim() || null;
+    const tagsRaw = String(form.get("tags") ?? "").trim();
+    const deadline = String(form.get("deadline") ?? "").trim() || null;
+    const beneficiaryDescription = String(form.get("beneficiaryDescription") ?? "").trim() || null;
+    const contactEmail = String(form.get("contactEmail") ?? "").trim() || null;
+    const socialLinksRaw = String(form.get("socialLinks") ?? "").trim();
+    const impactMetricsRaw = String(form.get("impactMetrics") ?? "").trim();
 
     if (!title) return err("Title is required.");
 
-    let milestones: Array<{ title: string; amount: string }>;
+    let milestones: Array<{ title: string; description?: string; amount: string }>;
     try {
       milestones = JSON.parse(milestonesRaw);
     } catch {
       return err("Invalid milestones JSON.");
     }
 
-    const walletJson = process.env.ARWEAVE_WALLET_JSON;
-    const arweaveConfigured = Boolean(walletJson);
-
-    let jwk: Record<string, string> | null = null;
-    let arweave: Arweave | null = null;
-
-    if (arweaveConfigured) {
-      jwk = JSON.parse(walletJson!) as Record<string, string>;
-      if (!jwk.kty || !jwk.n || !jwk.e || !jwk.d) {
-        return err("Invalid ARWEAVE_WALLET_JSON JWK format.", 500);
-      }
-      arweave = Arweave.init({
-        host: process.env.ARWEAVE_HOST ?? "arweave.net",
-        port: Number(process.env.ARWEAVE_PORT ?? 443),
-        protocol: process.env.ARWEAVE_PROTOCOL ?? "https",
-      });
+    let tags: string[] = [];
+    if (tagsRaw) {
+      try { tags = JSON.parse(tagsRaw); } catch { /* ignore */ }
     }
 
-    const gateway = process.env.ARWEAVE_GATEWAY_URL ?? "https://arweave.net";
+    let socialLinks: Array<{ label: string; url: string }> = [];
+    if (socialLinksRaw) {
+      try { socialLinks = JSON.parse(socialLinksRaw); } catch { /* ignore */ }
+    }
+
+    let impactMetrics: Array<{ name: string; target: string }> = [];
+    if (impactMetricsRaw) {
+      try { impactMetrics = JSON.parse(impactMetricsRaw); } catch { /* ignore */ }
+    }
+
+    const filebaseConfigured = isFilebaseConfigured();
     let imageUrl: string | null = null;
 
     const file =
@@ -76,47 +78,51 @@ export async function POST(req: Request) {
         return err("Unsupported image type. Use JPEG, PNG, WEBP, or GIF.");
       }
 
-      if (arweave && jwk) {
-        const buf = new Uint8Array(await file.arrayBuffer());
-        const imgTx = await arweave.createTransaction({ data: buf }, jwk as any);
-        imgTx.addTag("Content-Type", file.type || "application/octet-stream");
-        imgTx.addTag("App-Name", "Amini");
-        imgTx.addTag("Amini-Type", "campaign-image");
-        await arweave.transactions.sign(imgTx, jwk as any);
-        const imgRes = await arweave.transactions.post(imgTx);
-        if (![200, 202].includes(imgRes.status)) {
-          return err("Arweave image upload failed (status " + imgRes.status + ").", 502);
+      if (filebaseConfigured) {
+        try {
+          const buf = new Uint8Array(await file.arrayBuffer());
+          const result = await uploadBufferToIpfs(`campaign-image-${Date.now()}`, buf);
+          imageUrl = result.gatewayUrl;
+        } catch (uploadErr) {
+          return err("Image upload failed: " + (uploadErr as Error).message, 502);
         }
-        imageUrl = gateway + "/" + imgTx.id;
       }
     }
 
-    const metadata = {
+    const metadata: Record<string, unknown> = {
       title,
       description,
       milestones,
       imageUrl,
       region,
-      cause,
+      tags,
+      deadline,
+      beneficiaryDescription,
+      contactEmail,
+      socialLinks,
+      impactMetrics,
       createdAt: new Date().toISOString(),
     };
 
+    // Remove null/empty values for cleaner metadata
+    for (const key of Object.keys(metadata)) {
+      const val = metadata[key];
+      if (val === null || val === undefined || val === "" || (Array.isArray(val) && val.length === 0)) {
+        delete metadata[key];
+      }
+    }
+
     let metadataUri: string;
 
-    if (arweave && jwk) {
-      const metaTx = await arweave.createTransaction(
-        { data: JSON.stringify(metadata) },
-        jwk as any,
-      );
-      metaTx.addTag("Content-Type", "application/json");
-      metaTx.addTag("App-Name", "Amini");
-      metaTx.addTag("Amini-Type", "campaign-metadata");
-      await arweave.transactions.sign(metaTx, jwk as any);
-      const metaRes = await arweave.transactions.post(metaTx);
-      if (![200, 202].includes(metaRes.status)) {
-        return err("Arweave metadata upload failed (status " + metaRes.status + ").", 502);
+    if (filebaseConfigured) {
+      try {
+        const metaJson = JSON.stringify(metadata);
+        const metaBuf = new TextEncoder().encode(metaJson);
+        const result = await uploadBufferToIpfs(`campaign-metadata-${Date.now()}`, metaBuf);
+        metadataUri = result.ipfsUri;
+      } catch (uploadErr) {
+        return err("Metadata upload failed: " + (uploadErr as Error).message, 502);
       }
-      metadataUri = gateway + "/" + metaTx.id;
     } else {
       metadataUri = "ipfs://amini-" + Date.now();
     }
@@ -125,7 +131,7 @@ export async function POST(req: Request) {
       ok: true,
       metadataUri,
       imageUrl,
-      arweaveConfigured,
+      filebaseConfigured,
     });
   } catch (error) {
     return Response.json(

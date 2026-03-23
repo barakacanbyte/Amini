@@ -18,7 +18,13 @@ type CampaignPayload = {
   description?: string;
   imageUrl?: string;
   region?: string;
-  cause?: string;
+  tags?: string[];
+  deadline?: string;
+  contactEmail?: string;
+  beneficiaryDescription?: string;
+  socialLinks?: Array<{ label: string; url: string }>;
+  impactMetrics?: Array<{ name: string; target: string }>;
+  milestoneData?: Array<{ title: string; description?: string; amount: string }>;
   organizationId?: string;
 };
 
@@ -59,13 +65,20 @@ export async function POST(req: Request) {
       metadata_uri: payload.metadataUri || null,
       created_tx_hash: payload.txHash || null,
       created_block: payload.blockNumber ?? null,
+      status: "active",
     };
 
     if (payload.title) row.title = payload.title;
     if (payload.description) row.description = payload.description;
     if (payload.imageUrl) row.image_url = payload.imageUrl;
     if (payload.region) row.region = payload.region;
-    if (payload.cause) row.cause = payload.cause;
+    if (payload.tags?.length) row.tags = payload.tags;
+    if (payload.deadline) row.deadline = payload.deadline;
+    if (payload.contactEmail) row.contact_email = payload.contactEmail;
+    if (payload.beneficiaryDescription) row.beneficiary_description = payload.beneficiaryDescription;
+    if (payload.socialLinks?.length) row.social_links = payload.socialLinks;
+    if (payload.impactMetrics?.length) row.impact_metrics = payload.impactMetrics;
+    if (payload.milestoneData?.length) row.milestone_data = payload.milestoneData;
     if (payload.organizationId) row.organization_id = payload.organizationId;
 
     const dbRes = await fetch(

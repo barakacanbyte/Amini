@@ -11,7 +11,8 @@
     "test:contracts": "bun --filter contracts test",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
-    "db:dump-schema": "./scripts/dump-supabase-schema.sh"
+    "db:dump-schema": "./scripts/dump-supabase-schema.sh",
+    "build:frontend": "cd packages/frontend && next build"
   },
   "workspaces": [
     "packages/*",

@@ -12,13 +12,13 @@ Web3 platform for transparent, traceable fund transfers using stablecoins on Bas
 
 ## Prerequisites
 
-- Node 18+, pnpm
+- Node 18+, bun
 - Foundry (forge, cast)
 
 ## Setup
 
 ```bash
-pnpm install
+bun install
 ```
 
 Copy `.env.example` to `.env` and set:
@@ -36,7 +36,7 @@ Copy `.env.example` to `.env` and set:
 You can check readiness via `GET /api/world-id/health`.
 There is also an in-app debug view at `/debug/world-id`.
 
-**Database** — apply migrations in [`supabase/migrations/`](./supabase/migrations/) to your Supabase project (see [`supabase/README.md`](./supabase/README.md)). Regenerate a local snapshot with `pnpm db:dump-schema` (requires `SUPABASE_DB_URL` or `DATABASE_URL`).
+**Database** — apply migrations in [`supabase/migrations/`](./supabase/migrations/) to your Supabase project (see [`supabase/README.md`](./supabase/README.md)). Regenerate a local snapshot with `bun db:dump-schema` (requires `SUPABASE_DB_URL` or `DATABASE_URL`).
 
 **IPFS (Filebase)** — for impact posts and other server uploads, set `FILEBASE_ACCESS_KEY`, `FILEBASE_SECRET_KEY`, and `FILEBASE_BUCKET` (see [`.env.example`](./.env.example)). If your database still uses legacy `arweave_*` column names on `impact_posts`, apply [`supabase/migrations/20250101000004_legacy_rename_arweave_columns_to_ipfs.sql`](./supabase/migrations/20250101000004_legacy_rename_arweave_columns_to_ipfs.sql) (idempotent).
 
@@ -44,14 +44,14 @@ There is also an in-app debug view at `/debug/world-id`.
 
 ```bash
 # All packages
-pnpm build
+bun build
 
 # Contracts only
-pnpm --filter @amini/contracts build
-pnpm --filter @amini/contracts test
+bun --filter @amini/contracts build
+bun --filter @amini/contracts test
 
 # Frontend
-pnpm dev
+bun dev
 ```
 
 ## Deploy contracts (Base Sepolia)

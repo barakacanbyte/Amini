@@ -20,8 +20,9 @@ export async function GET(req: Request) {
   const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRole) {
+    console.error("Missing Supabase configuration:", { supabaseUrl: !!supabaseUrl, serviceRole: !!serviceRole });
     return Response.json(
-      { ok: false, message: "Supabase not configured." },
+      { ok: false, message: "Supabase not configured on server." },
       { status: 500 },
     );
   }
@@ -50,6 +51,7 @@ export async function GET(req: Request) {
 
     return Response.json({ ok: true, organization: rows[0] });
   } catch (error) {
+    console.error("GET /api/organizations error:", error);
     return Response.json(
       { ok: false, message: (error as Error).message ?? "Unknown server error" },
       { status: 500 },

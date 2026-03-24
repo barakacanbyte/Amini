@@ -787,7 +787,7 @@ export default function CreateCampaignPage() {
                   <div className="campaign-field">
                     <label className="campaign-label">Cover Photo</label>
                     <p className="campaign-validation-note mb-3">
-                      Max 5 MB <Icon name="dot" size="xs" /> JPEG, PNG, WEBP, or GIF
+                      Max 5 MB <span className="mx-1 op-50">•</span> JPEG, PNG, WEBP, or GIF
                     </p>
                     {imagePreview ? (
                       <div className="relative overflow-hidden rounded-xl border border-[var(--ui-border)]">
@@ -1152,7 +1152,7 @@ export default function CreateCampaignPage() {
                   {/* Toggle: Permanent Storage */}
                   <div className="campaign-toggle-row">
                     <div className="campaign-toggle-info">
-                      <span className="campaign-toggle-icon campaign-toggle-icon-green"><Icon name="box" size="xs" /></span>
+                      <span className="campaign-toggle-icon campaign-toggle-icon-green"><Icon name="folder" size="xs" /></span>
                       <div>
                         <span className="campaign-toggle-text">Permanent Storage (IPFS)</span>
                         <p className="campaign-toggle-subtext">Receipts and proofs pinned via Filebase</p>
@@ -1236,7 +1236,7 @@ export default function CreateCampaignPage() {
                         <TextCaption as="span" className="text-[var(--ui-muted)] dark:text-gray-400 text-[11px] uppercase tracking-wider font-bold">Location / Tags</TextCaption>
                         <TextBody as="p" className="app-text text-sm">
                           {region ? (stateLoc ? `${region}, ${stateLoc}` : region) : "—"}
-                          {tags.length > 0 && <><Icon name="dot" size="xs" className="mx-1" /> {tags.map((t) => CAUSE_OPTIONS.find((c) => c.value === t)?.label || t).join(", ")}</>}
+                          {tags.length > 0 && <><span className="mx-1 op-50">•</span> {tags.map((t) => CAUSE_OPTIONS.find((c) => c.value === t)?.label || t).join(", ")}</>}
                         </TextBody>
                       </div>
                     </div>
@@ -1276,7 +1276,7 @@ export default function CreateCampaignPage() {
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {superfluidEnabled && <Tag colorScheme="blue" emphasis="low" start={<Icon name="lightning" size="xs" />}>Superfluid</Tag>}
-                      {permanentStorage && <Tag colorScheme="green" emphasis="low" start={<Icon name="box" size="xs" />}>IPFS Storage</Tag>}
+                      {permanentStorage && <Tag colorScheme="green" emphasis="low" start={<Icon name="folder" size="xs" />}>IPFS Storage</Tag>}
                       {!superfluidEnabled && !permanentStorage && (
                         <TextCaption as="span" className="app-muted">No optional features enabled</TextCaption>
                       )}
@@ -1309,7 +1309,7 @@ export default function CreateCampaignPage() {
                     className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2"
                     onClick={handleSubmit}
                     disabled={!canSubmit || isPendingCreate || isConfirmingCreate}
-                    start={!(isSubmitting || isPendingCreate || isConfirmingCreate) && <Icon name="create" size="s" />}
+                    start={(!(isSubmitting || isPendingCreate || isConfirmingCreate)) ? <Icon name="add" size="s" /> : undefined}
                   >
                     {isSubmitting || isPendingCreate || isConfirmingCreate
                       ? "Creating..."

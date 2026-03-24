@@ -4,22 +4,26 @@
   "version": "0.1.0",
   "scripts": {
     "clean": "rm -rf packages/frontend/.next packages/frontend/tsconfig.tsbuildinfo apps/indexer/dist packages/shared/dist packages/eas-schemas/dist packages/contracts/out packages/contracts/cache coverage",
-    "build": "dotenv -e .env -- pnpm -r run build",
-    "dev": "dotenv -e .env -- pnpm --filter frontend dev",
-    "dev:indexer": "dotenv -e .env -- pnpm --filter indexer dev",
-    "test": "pnpm -r run test",
-    "test:contracts": "pnpm --filter contracts test",
+    "build": "dotenv -e .env -- bun -r run build",
+    "dev": "dotenv -e .env -- bun --filter frontend dev",
+    "dev:indexer": "dotenv -e .env -- bun --filter indexer dev",
+    "test": "bun -r run test",
+    "test:contracts": "bun --filter contracts test",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
     "db:dump-schema": "./scripts/dump-supabase-schema.sh"
   },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "devDependencies": {
     "dotenv-cli": "^11.0.0",
     "eslint": "^8.57.0",
     "prettier": "^3.2.5",
     "supabase": "^2.83.0"
   },
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "bun@1.1.0",
   "engines": {
     "node": ">=18"
   }

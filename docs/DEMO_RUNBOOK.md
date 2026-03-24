@@ -6,8 +6,8 @@ This runbook follows the intended hackathon demo flow from campaign setup throug
 
 - Deployed contracts on Base (or Base Sepolia) and env vars configured.
 - Supabase schema applied (see [`supabase/migrations/`](../supabase/migrations/) and [`supabase/README.md`](../supabase/README.md)).
-- Indexer running (`pnpm --filter indexer dev`).
-- Frontend running (`pnpm dev`).
+- Indexer running (`bun --filter indexer dev`).
+- Frontend running (`bun dev`).
 
 ## Demo flow
 

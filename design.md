@@ -78,5 +78,20 @@ When creating forms inside the `app-surface`:
 - Nest form sections inside `.campaign-card` or equivalent elevated panels (`app-surface-elev`).
 - Use custom toggle switches (`.campaign-toggle`) and styled inputs (`.campaign-input`, `.campaign-select`) provided in `globals.css` to maintain the thematic feel.
 
+## System UI Aesthetics
+
+To ensure maximum clarity and a premium feel, the following rules are enforced:
+
+### Form Inputs
+- **Light Theme Only**: All `input`, `textarea`, and `select` elements maintain a light/white background and dark text across both light and dark modes. This ensures focus and readability during data entry.
+- **Focus Rings**: Interactive elements utilize `--ui-focus-ring` (a soft emerald glow).
+
+### Banners & Notifications
+- **Internal Padding**: Contextual banners (`Banner` component from CDS) are styled with `0.75rem 1.25rem` internal padding to prevent text from touching the edges of the colored background.
+
+### Review Steps
+- **High Contrast**: The "Review & Launch" step utilizes `bg-[var(--ui-surface-elev)]/30` background overlays for sections, `brand-green` font-bold headers, and high-contrast labels for clear information hierarchy.
+
 ## Dark Mode
-The application supports both light and dark modes through CSS variables defined in `globals.css` under the `:root` and `.dark` selectors. Do not hardcode hex colors (e.g., `#ffffff` or `#000000`) for structural elements; always use the `var(--ui-*)` tokens.
+The application supports both light and dark modes through CSS variables defined in `globals.css` under the `:root` and `.dark` selectors. Do not hardcode hex colors (e.g., `#ffffff` or `#000000`) for structural elements; always use the `var(--ui-*)` tokens. Exception: Form inputs are explicitly white for visual clarity.
+

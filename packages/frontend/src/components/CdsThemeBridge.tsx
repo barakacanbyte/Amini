@@ -1,6 +1,6 @@
 "use client";
 
-import { ThemeProvider as CdsThemeProvider } from "@coinbase/cds-web";
+import { ThemeProvider as CdsThemeProvider } from "@coinbase/cds-web/system";
 import { useTheme } from "next-themes";
 import { useEffect, useState, type ReactNode } from "react";
 import { aminiCdsTheme } from "@/theme/aminiCdsTheme";

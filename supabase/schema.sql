@@ -26,6 +26,12 @@ CREATE TABLE public.organizations (
   country text,
   status org_status NOT NULL DEFAULT 'pending',
   verified_at timestamptz,
+  official_email text,
+  twitter_handle text,
+  linkedin_url text,
+  ens_name text,
+  has_coinbase_verification boolean DEFAULT false,
+  logo_url text,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );

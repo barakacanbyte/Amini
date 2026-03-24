@@ -9,6 +9,7 @@ import {
   useWalletClient,
   useWriteContract,
   useWaitForTransactionReceipt,
+  useSignMessage,
 } from "wagmi";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { TextTitle2 } from "@coinbase/cds-web/typography/TextTitle2";
@@ -128,6 +129,8 @@ export default function CampaignPage() {
   const [xmtpMessages, setXmtpMessages] = useState<
     Array<{ id: string; senderInboxId: string; text: string; sentAt: string }>
   >([]);
+  const { signMessageAsync } = useSignMessage();
+
 
   const { writeContract: writeApprove, data: txApprove, isPending: isPendingApprove } = useWriteContract();
   const { isLoading: isConfirmingApprove } = useWaitForTransactionReceipt({ hash: txApprove });
@@ -258,6 +261,20 @@ export default function CampaignPage() {
 
     setImpactSubmitting(true);
     try {
+      // 1. Get Signature
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const message = `Amini Verification\nAction: Post Impact Update\nWallet: ${address.toLowerCase()}\nTimestamp: ${timestamp}`;
+      
+      let signature: string;
+      try {
+        signature = await signMessageAsync({ message });
+      } catch (err) {
+        alert("Signature rejected. You must sign to post an update.");
+        setImpactSubmitting(false);
+        return;
+      }
+
+      // 2. Post Data
       const form = new FormData();
       form.append("campaignId", String(Number(id)));
       if (impactMilestone.trim() !== "") {
@@ -268,6 +285,9 @@ export default function CampaignPage() {
       }
       form.append("authorWallet", address);
       form.append("body", impactBody.trim());
+      form.append("signature", signature);
+      form.append("signatureTimestamp", timestamp);
+      
       if (impactFile) {
         form.append("file", impactFile);
       }

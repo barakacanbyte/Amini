@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import Link from "next/link";
-import { PlusCircle, Activity, ArrowUpRight } from "lucide-react";
+import { Icon } from "@coinbase/cds-web/icons";
 
 // Types
 interface OrgStats {
@@ -109,7 +109,7 @@ export default function OrganizationDashboard() {
           variant="primary"
           className="inline-flex items-center justify-center gap-2"
         >
-          <PlusCircle className="h-4 w-4" />
+          <Icon name="add" size="m" />
           Create Campaign
         </Button>
       </div>
@@ -120,7 +120,7 @@ export default function OrganizationDashboard() {
           <p className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Total Raised</p>
           <p className="mt-2 text-3xl font-bold text-[var(--ui-text)]">{stats?.totalRaised}</p>
           <div className="mt-2 flex items-center gap-1 text-xs font-medium text-[var(--ui-brand-green)]">
-            <ArrowUpRight className="h-3 w-3" />
+            <Icon name="diagonalUpArrow" size="m" />
             <span>+12% this month</span>
           </div>
         </div>

@@ -155,8 +155,8 @@
   .input-field {
     width: 100%;
     border: 1px solid var(--ui-border);
-    background: var(--ui-surface-elev);
-    color: var(--ui-text);
+    background: #ffffff; /* Always light */
+    color: #1a1a1a; /* Always dark text */
     padding: 0.5rem 1rem;
     border-radius: 0.5rem;
     font-size: 0.875rem;
@@ -222,6 +222,10 @@
 
   .flow-release:hover {
     border-color: var(--ui-brand-amber);
+  }
+
+  .banner-container {
+    padding: 0.5rem 1.5rem;
   }
 }
 
@@ -362,9 +366,9 @@
 }
 
 .dark .campaign-input {
-  background: var(--ui-surface-elev);
-  border-color: var(--ui-border);
-  color: var(--ui-text);
+  background: #ffffff; /* Forced white */
+  border-color: #d1d5db;
+  color: #1a1a1a;
 }
 
 .campaign-input:focus {
@@ -377,7 +381,7 @@
 }
 
 .dark .campaign-input::placeholder {
-  color: var(--ui-muted);
+  color: #6b7280;
 }
 
 .campaign-input-icon-wrapper {
@@ -415,9 +419,9 @@
 }
 
 .dark .campaign-textarea {
-  background: var(--ui-surface-elev);
-  border-color: var(--ui-border);
-  color: var(--ui-text);
+  background: #ffffff; /* Forced white */
+  border-color: #d1d5db;
+  color: #1a1a1a;
 }
 
 .campaign-textarea:focus {
@@ -448,10 +452,10 @@
 }
 
 .dark .campaign-select {
-  background-color: var(--ui-surface-elev);
-  border-color: var(--ui-border);
-  color: var(--ui-text);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23cdbfae' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E");
+  background-color: #ffffff; /* Forced white */
+  border-color: #d1d5db;
+  color: #1a1a1a;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5'/%3E%3C/svg%3E");
 }
 
 .campaign-select:focus {

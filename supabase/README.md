@@ -9,8 +9,13 @@
 
 ## Applying migrations
 
-### Supabase SQL editor (manual)
+### **Recommended: Supabase CLI (No-Memory Method)**
+For a robust, automated workflow that doesn't rely on memory:
+1. Follow the [Supabase Migration Workflow](../.agents/workflows/supabase-migration.md).
+2. Run `./scripts/check-database-drift.sh` to see if your local migrations match the remote DB.
+3. Use `npx supabase db push` to apply only the missing migrations.
 
+### **Alternative: Supabase SQL editor (manual)**
 1. Open the Supabase project → **SQL Editor**.
 2. Run each file under `migrations/` **in order** (oldest timestamp first), or paste the combined contents if you prefer a single run.
 

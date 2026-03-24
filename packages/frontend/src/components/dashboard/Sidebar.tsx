@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Megaphone, Activity, FileText, Settings, ShieldAlert, Users } from "lucide-react";
+import { Icon } from "@coinbase/cds-web/icons";
 import Image from "next/image";
 import { useAccount } from "wagmi";
 
@@ -19,23 +19,23 @@ export function Sidebar({ role, onRoleChange }: SidebarProps) {
 
   const navItems = {
     donor: [
-      { name: "General", href: "/dashboard/donor", icon: LayoutDashboard },
-      { name: "My Donations", href: "/dashboard/donor/donations", icon: Activity },
-      { name: "Tax Receipts", href: "/dashboard/donor/receipts", icon: FileText },
-      { name: "Settings", href: "/dashboard/donor/settings", icon: Settings },
+      { name: "General", href: "/dashboard/donor", icon: "dashboard" as const },
+      { name: "My Donations", href: "/dashboard/donor/donations", icon: "activity" as const },
+      { name: "Tax Receipts", href: "/dashboard/donor/receipts", icon: "document" as const },
+      { name: "Settings", href: "/dashboard/donor/settings", icon: "settings" as const },
     ],
     organization: [
-      { name: "General", href: "/dashboard/organization", icon: LayoutDashboard },
-      { name: "My Campaigns", href: "/dashboard/organization/campaigns", icon: Megaphone },
-      { name: "Disbursements", href: "/dashboard/organization/disbursements", icon: Activity },
-      { name: "Settings", href: "/dashboard/organization/settings", icon: Settings },
+      { name: "General", href: "/dashboard/organization", icon: "dashboard" as const },
+      { name: "My Campaigns", href: "/dashboard/organization/campaigns", icon: "megaphone" as const },
+      { name: "Disbursements", href: "/dashboard/organization/disbursements", icon: "activity" as const },
+      { name: "Settings", href: "/dashboard/organization/settings", icon: "settings" as const },
     ],
     admin: [
-      { name: "Overview", href: "/dashboard/admin", icon: LayoutDashboard },
-      { name: "All Campaigns", href: "/dashboard/admin/campaigns", icon: Megaphone },
-      { name: "Users", href: "/dashboard/admin/users", icon: Users },
-      { name: "Verification", href: "/dashboard/admin/verification", icon: ShieldAlert },
-      { name: "Settings", href: "/dashboard/admin/settings", icon: Settings },
+      { name: "Overview", href: "/dashboard/admin", icon: "dashboard" as const },
+      { name: "All Campaigns", href: "/dashboard/admin/campaigns", icon: "megaphone" as const },
+      { name: "Users", href: "/dashboard/admin/users", icon: "peopleGroup" as const },
+      { name: "Verification", href: "/dashboard/admin/verification", icon: "securityShield" as const },
+      { name: "Settings", href: "/dashboard/admin/settings", icon: "settings" as const },
     ],
   };
 
@@ -81,8 +81,6 @@ export function Sidebar({ role, onRoleChange }: SidebarProps) {
           const isExactMatch = pathname === item.href;
           const isSubpageMatch = item.href !== `/dashboard/${role}` && pathname?.startsWith(`${item.href}/`);
           const isActive = isExactMatch || isSubpageMatch;
-          
-          const Icon = item.icon;
           return (
             <Link
               key={item.name}
@@ -93,7 +91,7 @@ export function Sidebar({ role, onRoleChange }: SidebarProps) {
                   : "text-[var(--ui-muted)] hover:bg-[var(--ui-surface-elev)] hover:text-[var(--ui-text)]"
               }`}
             >
-              <Icon className="h-5 w-5" />
+              <Icon name={item.icon} size="m" />
               {item.name}
             </Link>
           );

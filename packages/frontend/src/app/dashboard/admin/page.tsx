@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@coinbase/cds-web/buttons/Button";
-import { ShieldCheck, Users, Activity, AlertCircle } from "lucide-react";
+import { Icon } from "@coinbase/cds-web/icons";
 
 // Types
 interface AdminStats {
@@ -89,9 +89,7 @@ export default function AdminDashboard() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-blue-500/10 p-2 text-blue-500">
-              <Activity className="h-5 w-5" />
-            </div>
+              <Icon name="activity" size="m" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Total Volume</p>
               <p className="text-xl font-bold text-[var(--ui-text)]">{stats?.totalVolume}</p>
@@ -100,9 +98,7 @@ export default function AdminDashboard() {
         </div>
         <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-[var(--ui-brand-green)]/10 p-2 text-[var(--ui-brand-green)]">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
+              <Icon name="securityShield" size="m" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Active Campaigns</p>
               <p className="text-xl font-bold text-[var(--ui-text)]">{stats?.activeCampaigns}</p>
@@ -111,9 +107,7 @@ export default function AdminDashboard() {
         </div>
         <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-[var(--ui-brand-brown)]/10 p-2 text-[var(--ui-brand-brown)]">
-              <Users className="h-5 w-5" />
-            </div>
+              <Icon name="peopleGroup" size="m" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Verified Orgs</p>
               <p className="text-xl font-bold text-[var(--ui-text)]">{stats?.verifiedOrgs}</p>
@@ -122,9 +116,7 @@ export default function AdminDashboard() {
         </div>
         <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-[var(--ui-brand-amber)]/10 p-2 text-[var(--ui-brand-amber)]">
-              <AlertCircle className="h-5 w-5" />
-            </div>
+              <Icon name="warning" size="m" />
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Pending Reviews</p>
               <p className="text-xl font-bold text-[var(--ui-text)]">{stats?.pendingReviews}</p>

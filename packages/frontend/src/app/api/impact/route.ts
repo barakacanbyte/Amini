@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { uploadBufferToIpfs } from "@/lib/filebaseUpload";
+import { verifyAminiSignature } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -9,6 +10,8 @@ type ImpactRequest = {
   authorWallet: string;
   body: string;
   txHashLink?: string;
+  signature?: string;
+  signatureTimestamp?: string;
 };
 
 type ParsedImpactInput = ImpactRequest & {
@@ -56,6 +59,8 @@ export async function POST(req: Request) {
           form.get("file") instanceof File && (form.get("file") as File).size > 0
             ? (form.get("file") as File)
             : undefined,
+        signature: String(form.get("signature") ?? ""),
+        signatureTimestamp: String(form.get("signatureTimestamp") ?? ""),
       };
     } else {
       payload = (await req.json()) as ParsedImpactInput;
@@ -73,6 +78,16 @@ export async function POST(req: Request) {
     if (payload.txHashLink && !/^0x[a-fA-F0-9]{64}$/.test(payload.txHashLink)) {
       return badRequest("txHashLink must be a valid 0x tx hash.");
     }
+
+    // signature verification
+    if (!payload.signature || !payload.signatureTimestamp) {
+      return badRequest("Blockchain signature is required.", 401);
+    }
+    const sigResult = await verifyAminiSignature("Post Impact Update", payload.authorWallet, payload.signature, payload.signatureTimestamp);
+    if (!sigResult.ok) {
+      return badRequest(sigResult.message ?? "Invalid signature", 401);
+    }
+
 
     let attachmentCid: string | null = null;
     let attachmentUrl: string | null = null;

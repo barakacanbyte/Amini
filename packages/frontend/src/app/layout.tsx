@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import "@coinbase/cds-icons/fonts/web/icon-font.css";
+import "@coinbase/cds-web/defaultFontStyles";
 import "@coinbase/cds-web/globalStyles";
 import "@coinbase/onchainkit/styles.css";
 import "./globals.css";

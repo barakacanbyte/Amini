@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSignMessage } from "wagmi";
 import { decodeEventLog } from "viem";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { TextBody } from "@coinbase/cds-web/typography/TextBody";
@@ -12,21 +12,10 @@ import { TextTitle1 } from "@coinbase/cds-web/typography/TextTitle1";
 import { TextTitle2 } from "@coinbase/cds-web/typography/TextTitle2";
 import { TextCaption } from "@coinbase/cds-web/typography/TextCaption";
 import { Tag } from "@coinbase/cds-web/tag/Tag";
+import { Banner } from "@coinbase/cds-web/banner/Banner";
 import { Spinner } from "@coinbase/cds-web/loaders/Spinner";
 import { ProgressBar } from "@coinbase/cds-web/visualizations/ProgressBar";
-import {
-  Upload,
-  Trash2,
-  CheckCircle2,
-  Circle,
-  Loader2,
-  MoreHorizontal,
-  DollarSign,
-  ChevronRight,
-  ChevronLeft,
-  Edit3,
-  Save,
-} from "lucide-react";
+import { Icon } from "@coinbase/cds-web/icons";
 import { config, campaignRegistryAbi, milestoneEscrowAbi, parseUsdc } from "@/lib/contracts";
 
 /* ------------------------------------------------------------------ */
@@ -64,7 +53,7 @@ const STEPS = [
   { key: 4, label: "Review" },
 ] as const;
 
-type SubmitStep = "idle" | "uploading" | "creating" | "saving" | "done" | "error";
+type SubmitStep = "idle" | "uploading" | "creating" | "signing" | "saving" | "done" | "error";
 
 /* ------------------------------------------------------------------ */
 /* Draft helpers                                                      */
@@ -164,6 +153,7 @@ export default function CreateCampaignPage() {
 
   /* ---- Contract interaction ---- */
   const { writeContract: writeRegistry, data: txCreate, isPending: isPendingCreate } = useWriteContract();
+  const { signMessageAsync } = useSignMessage();
   const { data: receiptCreate, isLoading: isConfirmingCreate } = useWaitForTransactionReceipt({ hash: txCreate });
   const { writeContract: writeEscrow, data: txInit, isPending: isPendingInit } = useWriteContract();
   const { isLoading: isConfirmingInit, data: receiptInit } = useWaitForTransactionReceipt({ hash: txInit });
@@ -252,52 +242,66 @@ export default function CreateCampaignPage() {
     return undefined;
   }, [receiptCreate]);
 
-  /* ---- Auto-save to Supabase on successful creation ---- */
-  const savedRef = useRef(false);
-  useMemo(() => {
-    if (createdCampaignId === undefined || savedRef.current || !receiptCreate) return;
-    savedRef.current = true;
-    setSubmitStep("saving");
+  /* ---- Final Step: Sign & Save to Supabase ---- */
+  async function handleSignAndSave() {
+    if (createdCampaignId === undefined || !receiptCreate || !address) return;
+    setSubmitStep("signing");
 
-    fetch("/api/campaigns", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        campaignId: createdCampaignId,
-        chainId: config.chainId,
-        owner: address?.toLowerCase(),
-        beneficiary: address?.toLowerCase(),
-        targetAmount: parseUsdc(targetAmount).toString(),
-        milestoneCount: milestones.length,
-        metadataUri,
-        txHash: txCreate,
-        blockNumber: Number(receiptCreate.blockNumber),
-        title,
-        description,
-        imageUrl,
-        region: region || undefined,
-        tags: tags.length ? tags : undefined,
-        deadline: deadline || undefined,
-        contactEmail: contactEmail || undefined,
-        beneficiaryDescription: beneficiaryDescription || undefined,
-        socialLinks: socialLinks.length ? socialLinks : undefined,
-        impactMetrics: impactMetrics.length ? impactMetrics : undefined,
-        milestoneData: milestones,
-        organizationId: orgId || undefined,
-      }),
-    })
-      .then((res) => res.json())
-      .then((json: { ok: boolean; message?: string }) => {
-        setSavedToDb(json.ok);
-        setSubmitStep("done");
-        clearDraft();
-      })
-      .catch(() => {
-        setSavedToDb(false);
-        setSubmitStep("done");
+    try {
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const message = `Amini Verification\nAction: Create Campaign\nWallet: ${address.toLowerCase()}\nTimestamp: ${timestamp}`;
+      
+      let signature: string;
+      try {
+        signature = await signMessageAsync({ message });
+      } catch (err) {
+        setSubmitStep("signing"); // Stay here but maybe show error
+        alert("Signature rejected. You must sign to finalize your campaign.");
+        return;
+      }
+
+      setSubmitStep("saving");
+      const res = await fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId: createdCampaignId,
+          chainId: config.chainId,
+          owner: address.toLowerCase(),
+          beneficiary: address.toLowerCase(),
+          targetAmount: parseUsdc(targetAmount).toString(),
+          milestoneCount: milestones.length,
+          metadataUri,
+          txHash: txCreate,
+          blockNumber: Number(receiptCreate.blockNumber),
+          title,
+          description,
+          imageUrl,
+          region: region || undefined,
+          tags: tags.length ? tags : undefined,
+          deadline: deadline || undefined,
+          contactEmail: contactEmail || undefined,
+          beneficiaryDescription: beneficiaryDescription || undefined,
+          socialLinks: socialLinks.length ? socialLinks : undefined,
+          impactMetrics: impactMetrics.length ? impactMetrics : undefined,
+          milestoneData: milestones,
+          organizationId: orgId || undefined,
+          signature,
+          signatureTimestamp: timestamp,
+        }),
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createdCampaignId, receiptCreate]);
+
+      const json = await res.json();
+      setSavedToDb(json.ok);
+      setSubmitStep("done");
+      clearDraft();
+    } catch (err) {
+      console.error(err);
+      setSavedToDb(false);
+      setSubmitStep("done");
+    }
+  }
+
 
   /* ---- Derived validation per step ---- */
   const step1Valid = !!title.trim() && !!description.trim();
@@ -474,7 +478,6 @@ export default function CreateCampaignPage() {
     setMetadataUri(null);
     setImageUrl(null);
     setSavedToDb(false);
-    savedRef.current = false;
     setCurrentStep(1);
     clearDraft();
   }
@@ -491,12 +494,12 @@ export default function CreateCampaignPage() {
     const currentIdx = order.indexOf(submitStep);
     const keyIdx = order.indexOf(stepKey);
     if (submitStep === "done" || currentIdx > keyIdx) {
-      return <CheckCircle2 className="h-5 w-5 text-[var(--ui-brand-green)]" />;
+      return <Icon name="circleCheckmark" size="m" className="text-[var(--ui-brand-green)]" />;
     }
     if (submitStep === stepKey) {
-      return <Loader2 className="h-5 w-5 animate-spin text-[var(--ui-brand-brown)]" />;
+      return <Spinner size={2} />;
     }
-    return <Circle className="h-5 w-5 text-[var(--ui-muted)]" />;
+    return <div className="h-4 w-4 rounded-full border-2 border-[var(--ui-muted)]" />;
   }
 
   const isSubmitting = submitStep !== "idle" && submitStep !== "done" && submitStep !== "error";
@@ -526,60 +529,110 @@ export default function CreateCampaignPage() {
 
           {/* ---- Draft restored banner ---- */}
           {draftRestored && submitStep === "idle" && (
-            <div className="mx-auto mb-6 max-w-3xl rounded-xl border border-[var(--ui-brand-amber)] bg-[color-mix(in_oklab,var(--ui-brand-amber)_8%,transparent)] px-5 py-3 flex items-center justify-between">
-              <TextBody as="p" className="app-text text-sm">
-                📝 Draft restored from your last session
-              </TextBody>
-              <button
-                type="button"
-                onClick={() => { clearDraft(); setDraftRestored(false); resetForm(); setTitle(""); setDescription(""); setBeneficiaryDescription(""); setContactEmail(""); setSocialLinks([]); setImpactMetrics([]); setTargetAmount(""); setDeadline(""); setRegion(""); setStateLoc(""); setTags([]); setMilestones([{ ...EMPTY_MILESTONE }]); setAttestationService(""); setSuperfluidEnabled(false); setPermanentStorage(true); }}
-                className="text-xs font-medium text-[var(--ui-brand-brown)] underline underline-offset-2 hover:opacity-80"
+            <div className="mx-auto mb-6 max-w-3xl">
+              <Banner
+                variant="informational"
+                startIcon="info"
+                startIconActive
+                styleVariant="contextual"
+                borderRadius={400}
+                title="Draft restored from your last session"
+                style={{ padding: '0.75rem 1.25rem' }}
+                showDismiss
+                onClose={() => {
+                  clearDraft();
+                  setDraftRestored(false);
+                  resetForm();
+                  setTitle(""); setDescription(""); setBeneficiaryDescription(""); setContactEmail("");
+                  setSocialLinks([]); setImpactMetrics([]); setTargetAmount(""); setDeadline("");
+                  setRegion(""); setStateLoc(""); setTags([]); setMilestones([{ ...EMPTY_MILESTONE }]);
+                  setAttestationService(""); setSuperfluidEnabled(false); setPermanentStorage(true);
+                }}
               >
-                Discard draft
-              </button>
+                Your previously saved campaign draft has been loaded. Dismiss to start fresh.
+              </Banner>
             </div>
           )}
 
           {/* ---- Wallet / contract warnings ---- */}
           {!isConnected && (
-            <div className="callout-amber mx-auto mb-6 max-w-3xl">
-              <Tag colorScheme="yellow" emphasis="high">Connect your wallet to create a campaign.</Tag>
+            <div className="mx-auto mb-6 max-w-3xl">
+              <Banner
+                variant="warning"
+                startIcon="warning"
+                startIconActive
+                styleVariant="contextual"
+                borderRadius={400}
+                title="Wallet not connected"
+                style={{ padding: '0.75rem 1.25rem' }}
+              >
+                Connect your wallet to create a campaign.
+              </Banner>
             </div>
           )}
           {isConnected && (!registryAddress || !escrowAddress) && (
-            <div className="callout-amber mx-auto mb-6 max-w-3xl">
-              <Tag colorScheme="yellow" emphasis="high">Contract addresses not configured</Tag>
-              <TextBody as="p" className="app-muted mt-2 text-sm">
+            <div className="mx-auto mb-6 max-w-3xl">
+              <Banner
+                variant="warning"
+                startIcon="warning"
+                startIconActive
+                styleVariant="contextual"
+                borderRadius={400}
+                title="Contract addresses not configured"
+                style={{ padding: '0.75rem 1.25rem' }}
+              >
                 Set NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS and NEXT_PUBLIC_ESCROW_ADDRESS in your .env
-              </TextBody>
+              </Banner>
             </div>
           )}
 
           {/* ---- Organization gate banner ---- */}
           {isConnected && orgStatus === "loading" && (
-            <div className="mx-auto mb-6 max-w-3xl rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-5 py-3 flex items-center gap-3">
-              <Spinner size={2} accessibilityLabel="Checking organization" />
-              <TextBody as="p" className="app-muted text-sm">Checking organization status...</TextBody>
+            <div className="mx-auto mb-6 max-w-3xl">
+              <Banner
+                variant="informational"
+                startIcon="info"
+                startIconActive
+                styleVariant="contextual"
+                borderRadius={400}
+                title="Checking organization status"
+                style={{ padding: '0.75rem 1.25rem' }}
+              >
+                Verifying your wallet is linked to an approved organization...
+              </Banner>
             </div>
           )}
           {isConnected && orgStatus === "verified" && (
-            <div className="mx-auto mb-6 max-w-3xl rounded-xl border border-[var(--ui-brand-green)] bg-[color-mix(in_oklab,var(--ui-brand-green)_8%,transparent)] px-5 py-3 flex items-center gap-3">
-              <CheckCircle2 className="h-5 w-5 text-[var(--ui-brand-green)]" />
-              <TextBody as="p" className="app-text text-sm">
-                <span className="font-semibold">{orgName}</span> — Verified Organization
-              </TextBody>
+            <div className="mx-auto mb-6 max-w-3xl">
+              <Banner
+                variant="promotional"
+                startIcon="verifiedBadge"
+                startIconActive
+                styleVariant="contextual"
+                borderRadius={400}
+                title={`${orgName} — Verified Organization`}
+                style={{ padding: '0.75rem 1.25rem' }}
+              >
+                Your organization is verified. You can create campaigns.
+              </Banner>
             </div>
           )}
           {isConnected && (orgStatus === "unverified" || orgStatus === "none") && (
-            <div className="mx-auto mb-6 max-w-3xl rounded-xl border border-red-300 bg-red-50 px-5 py-4 dark:border-red-800 dark:bg-red-900/20">
-              <TextBody as="p" className="text-red-700 dark:text-red-400 text-sm font-medium">
-                ⚠️ Only verified organizations can create campaigns.
-              </TextBody>
-              <TextBody as="p" className="text-red-600 dark:text-red-400 text-xs mt-1">
+            <div className="mx-auto mb-6 max-w-3xl">
+              <Banner
+                variant="error"
+                startIcon="warning"
+                startIconActive
+                styleVariant="contextual"
+                borderRadius={400}
+                title="Only verified organizations can create campaigns"
+                style={{ padding: '0.75rem 1.25rem' }}
+                primaryAction={<Link href="/organizations/register" className="text-sm font-semibold underline underline-offset-2">Register Organization</Link>}
+              >
                 {orgStatus === "unverified"
-                  ? `Your organization "${orgName}" is pending verification. Please wait for approval.`
-                  : "Your wallet is not linked to any organization. Please register your organization first."}
-              </TextBody>
+                  ? `Your organization "${orgName}" is pending verification. Please wait for admin approval.`
+                  : "Your wallet is not linked to any organization. Register your organization to get started."}
+              </Banner>
             </div>
           )}
 
@@ -602,7 +655,7 @@ export default function CreateCampaignPage() {
                       className={`wizard-step ${active ? "wizard-step-active" : ""} ${completed ? "wizard-step-completed" : ""}`}
                     >
                       <span className="wizard-step-dot">
-                        {completed ? <CheckCircle2 className="h-5 w-5" /> : <span>{s.key}</span>}
+                        {completed ? <Icon name="circleCheckmark" size="m" /> : <span>{s.key}</span>}
                       </span>
                       <span className="wizard-step-label">{s.label}</span>
                       {i < STEPS.length - 1 && <span className="wizard-step-connector" />}
@@ -644,7 +697,7 @@ export default function CreateCampaignPage() {
             {submitStep === "done" && createdCampaignId !== undefined && (
               <div className="campaign-card mb-6">
                 <div className="mb-4 flex items-center gap-2">
-                  <CheckCircle2 className="h-6 w-6 text-[var(--ui-brand-green)]" />
+                  <Icon name="circleCheckmark" size="l" className="text-[var(--ui-brand-green)]" />
                   <Tag colorScheme="green" emphasis="high">Campaign #{createdCampaignId} created!</Tag>
                 </div>
                 {savedToDb && (
@@ -661,10 +714,10 @@ export default function CreateCampaignPage() {
                       {isPendingInit || isConfirmingInit ? "Setting up..." : "Enable Funding"}
                     </Button>
                   ) : (
-                    <Tag colorScheme="green" emphasis="high">Funding enabled ✓</Tag>
+                    <Tag colorScheme="green" emphasis="high" start={<Icon name="circleCheckmark" size="xs" />}>Funding enabled</Tag>
                   )}
                   <Button as={Link} href={"/campaigns/" + createdCampaignId} variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2">
-                    View campaign →
+                    View campaign <Icon name="arrowRight" size="s" className="inline" />
                   </Button>
                   <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" onClick={resetForm}>Create another</Button>
                 </div>
@@ -673,12 +726,19 @@ export default function CreateCampaignPage() {
 
             {/* ---- Error ---- */}
             {submitStep === "error" && (
-              <div className="campaign-card mb-6">
-                <div className="rounded-lg bg-red-50 p-4 dark:bg-red-900/20">
-                  <TextBody as="p" className="text-red-700 dark:text-red-400">{errorMsg ?? "Something went wrong."}</TextBody>
-                  <div className="mt-3">
-                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" onClick={() => setSubmitStep("idle")}>Try again</Button>
-                  </div>
+              <div className="mx-auto mb-6 max-w-3xl">
+                <Banner
+                  variant="error"
+                  startIcon="error"
+                  startIconActive
+                  styleVariant="contextual"
+                  borderRadius={400}
+                  title="Campaign creation failed"
+                >
+                  {errorMsg ?? "Something went wrong."}
+                </Banner>
+                <div className="mt-3">
+                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" onClick={() => setSubmitStep("idle")}>Try again</Button>
                 </div>
               </div>
             )}
@@ -727,7 +787,7 @@ export default function CreateCampaignPage() {
                   <div className="campaign-field">
                     <label className="campaign-label">Cover Photo</label>
                     <p className="campaign-validation-note mb-3">
-                      Max 5 MB · JPEG, PNG, WEBP, or GIF
+                      Max 5 MB <Icon name="dot" size="xs" /> JPEG, PNG, WEBP, or GIF
                     </p>
                     {imagePreview ? (
                       <div className="relative overflow-hidden rounded-xl border border-[var(--ui-border)]">
@@ -737,7 +797,7 @@ export default function CreateCampaignPage() {
                           onClick={clearImage}
                           className="absolute right-3 top-3 rounded-full bg-black/70 p-2 text-white transition-all hover:bg-black/90"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Icon name="trashCan" size="s" />
                         </button>
                       </div>
                     ) : (
@@ -746,7 +806,7 @@ export default function CreateCampaignPage() {
                         onClick={() => fileInputRef.current?.click()}
                         className="flex w-full items-center justify-center gap-3 rounded-xl border-2 border-dashed border-gray-300 p-10 transition-all hover:border-[var(--ui-brand-green)] hover:bg-[var(--ui-surface-elev)] dark:border-[var(--ui-border)]"
                       >
-                        <Upload className="h-6 w-6 text-gray-400" />
+                        <Icon name="upload" size="l" className="text-gray-400" />
                         <span className="text-sm text-gray-500 dark:text-[var(--ui-muted)]">Click to upload or drag and drop</span>
                       </button>
                     )}
@@ -808,7 +868,7 @@ export default function CreateCampaignPage() {
                           placeholder="https://..."
                         />
                         <button type="button" onClick={() => setSocialLinks((prev) => prev.filter((_, j) => j !== i))} className="campaign-milestone-remove" title="Remove">
-                          <Trash2 className="h-4 w-4" />
+                          <Icon name="trashCan" size="s" />
                         </button>
                       </div>
                     ))}
@@ -847,7 +907,7 @@ export default function CreateCampaignPage() {
                           placeholder="Target (e.g. 500)"
                         />
                         <button type="button" onClick={() => setImpactMetrics((prev) => prev.filter((_, j) => j !== i))} className="campaign-milestone-remove" title="Remove">
-                          <Trash2 className="h-4 w-4" />
+                          <Icon name="trashCan" size="s" />
                         </button>
                       </div>
                     ))}
@@ -859,10 +919,10 @@ export default function CreateCampaignPage() {
 
                 {/* Navigation */}
                 <div className="wizard-nav">
-                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Save className="h-4 w-4" />} onClick={handleSaveDraft}>
+                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
                     Save Draft
                   </Button>
-                  <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<ChevronRight className="h-4 w-4" />} onClick={goNext} disabled={!step1Valid}>
+                  <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext} disabled={!step1Valid}>
                     Continue
                   </Button>
                 </div>
@@ -899,7 +959,7 @@ export default function CreateCampaignPage() {
                           placeholder="e.g. 50000"
                         />
                         <span className="campaign-input-icon">
-                          <DollarSign className="h-4 w-4" />
+                          <Icon name="cash" size="s" />
                         </span>
                       </div>
                     </div>
@@ -959,7 +1019,7 @@ export default function CreateCampaignPage() {
                                 : "border-[var(--ui-border)] bg-transparent app-muted hover:border-[var(--ui-brand-green)] hover:text-[var(--ui-brand-green)]"
                             }`}
                           >
-                            {tags.includes(c.value) ? "✓ " : ""}{c.label}
+                            {tags.includes(c.value) ? <Icon name="circleCheckmark" size="xs" className="mr-1 inline-block" /> : ""}{c.label}
                           </button>
                         ))}
                       </div>
@@ -977,7 +1037,7 @@ export default function CreateCampaignPage() {
                           <span className="campaign-milestone-label font-semibold">Milestone {i + 1}</span>
                           {milestones.length > 1 && (
                             <button type="button" onClick={() => removeMilestone(i)} className="campaign-milestone-remove" title="Remove">
-                              <Trash2 className="h-4 w-4" />
+                              <Icon name="trashCan" size="s" />
                             </button>
                           )}
                         </div>
@@ -1025,7 +1085,11 @@ export default function CreateCampaignPage() {
                           as="span"
                           className={milestoneSumMatches ? "text-[var(--ui-brand-green)] font-semibold" : "text-[var(--ui-brand-amber)] font-semibold"}
                         >
-                          {milestoneSumMatches ? "✓ Amounts match target" : "⚠ Adjust milestones to match target"}
+                          {milestoneSumMatches ? (
+                            <span className="flex items-center gap-1"><Icon name="circleCheckmark" size="xs" /> Amounts match target</span>
+                          ) : (
+                            <span className="flex items-center gap-1"><Icon name="warning" size="xs" /> Adjust milestones to match target</span>
+                          )}
                         </TextCaption>
                       </div>
                     </div>
@@ -1034,14 +1098,14 @@ export default function CreateCampaignPage() {
 
                 {/* Navigation */}
                 <div className="wizard-nav">
-                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<ChevronLeft className="h-4 w-4" />} onClick={goBack}>
+                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
                     Back
                   </Button>
                   <div className="flex gap-3">
-                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Save className="h-4 w-4" />} onClick={handleSaveDraft}>
+                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
                       Save Draft
                     </Button>
-                    <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<ChevronRight className="h-4 w-4" />} onClick={goNext} disabled={!step2Valid}>
+                    <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext} disabled={!step2Valid}>
                       Continue
                     </Button>
                   </div>
@@ -1073,7 +1137,7 @@ export default function CreateCampaignPage() {
                   {/* Toggle: Superfluid */}
                   <div className="campaign-toggle-row">
                     <div className="campaign-toggle-info">
-                      <span className="campaign-toggle-icon campaign-toggle-icon-purple">⚡</span>
+                      <span className="campaign-toggle-icon campaign-toggle-icon-purple"><Icon name="lightning" size="xs" /></span>
                       <div>
                         <span className="campaign-toggle-text">Superfluid Streaming Payments</span>
                         <p className="campaign-toggle-subtext">Enable real-time streaming of funds</p>
@@ -1088,7 +1152,7 @@ export default function CreateCampaignPage() {
                   {/* Toggle: Permanent Storage */}
                   <div className="campaign-toggle-row">
                     <div className="campaign-toggle-info">
-                      <span className="campaign-toggle-icon campaign-toggle-icon-green">📦</span>
+                      <span className="campaign-toggle-icon campaign-toggle-icon-green"><Icon name="box" size="xs" /></span>
                       <div>
                         <span className="campaign-toggle-text">Permanent Storage (IPFS)</span>
                         <p className="campaign-toggle-subtext">Receipts and proofs pinned via Filebase</p>
@@ -1103,14 +1167,14 @@ export default function CreateCampaignPage() {
 
                 {/* Navigation */}
                 <div className="wizard-nav">
-                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<ChevronLeft className="h-4 w-4" />} onClick={goBack}>
+                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
                     Back
                   </Button>
                   <div className="flex gap-3">
-                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Save className="h-4 w-4" />} onClick={handleSaveDraft}>
+                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
                       Save Draft
                     </Button>
-                    <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<ChevronRight className="h-4 w-4" />} onClick={goNext} disabled={!step3Valid}>
+                    <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext} disabled={!step3Valid}>
                       Continue
                     </Button>
                   </div>
@@ -1133,20 +1197,20 @@ export default function CreateCampaignPage() {
                   </TextBody>
 
                   {/* Section: Campaign Details */}
-                  <div className="wizard-review-section">
+                  <div className="wizard-review-section bg-[var(--ui-surface-elev)]/30 p-5 rounded-2xl mb-4 border border-[var(--ui-border)]">
                     <div className="wizard-review-header">
-                      <TextLabel1 as="h3" className="app-text">Campaign Details</TextLabel1>
+                      <TextLabel1 as="h3" className="brand-green font-bold text-base">Campaign Details</TextLabel1>
                       <button type="button" onClick={() => goToStep(1)} className="wizard-review-edit">
-                        <Edit3 className="mr-1 h-3.5 w-3.5" /> Edit
+                        <Icon name="pencil" size="s" className="mr-1" /> Edit
                       </button>
                     </div>
                     <div className="wizard-review-grid flex flex-col sm:grid sm:grid-cols-2 gap-4">
                       <div className="flex flex-col gap-1">
-                        <TextCaption as="span" className="app-muted text-[11px] uppercase tracking-wider">Name</TextCaption>
+                        <TextCaption as="span" className="text-[var(--ui-muted)] dark:text-gray-400 text-[11px] uppercase tracking-wider font-bold">Name</TextCaption>
                         <TextBody as="p" className="app-text font-medium">{title || "—"}</TextBody>
                       </div>
                       <div className="flex flex-col gap-1">
-                        <TextCaption as="span" className="app-muted text-[11px] uppercase tracking-wider">Description</TextCaption>
+                        <TextCaption as="span" className="text-[var(--ui-muted)] dark:text-gray-400 text-[11px] uppercase tracking-wider font-bold">Description</TextCaption>
                         <TextBody as="p" className="app-text text-sm">{description || "—"}</TextBody>
                       </div>
                     </div>
@@ -1156,23 +1220,23 @@ export default function CreateCampaignPage() {
                   </div>
 
                   {/* Section: Funding & Milestones */}
-                  <div className="wizard-review-section">
+                  <div className="wizard-review-section bg-[var(--ui-surface-elev)]/30 p-5 rounded-2xl mb-4 border border-[var(--ui-border)]">
                     <div className="wizard-review-header">
-                      <TextLabel1 as="h3" className="app-text">Funding & Milestones</TextLabel1>
+                      <TextLabel1 as="h3" className="brand-green font-bold text-base">Funding & Milestones</TextLabel1>
                       <button type="button" onClick={() => goToStep(2)} className="wizard-review-edit">
-                        <Edit3 className="mr-1 h-3.5 w-3.5" /> Edit
+                        <Icon name="pencil" size="s" className="mr-1" /> Edit
                       </button>
                     </div>
                     <div className="wizard-review-grid flex flex-col sm:grid sm:grid-cols-2 gap-4">
                       <div className="flex flex-col gap-1">
-                        <TextCaption as="span" className="app-muted text-[11px] uppercase tracking-wider">Target</TextCaption>
+                        <TextCaption as="span" className="text-[var(--ui-muted)] dark:text-gray-400 text-[11px] uppercase tracking-wider font-bold">Target</TextCaption>
                         <TextBody as="p" className="app-text font-medium">{targetAmount ? `${targetAmount} USDC` : "—"}</TextBody>
                       </div>
                       <div className="flex flex-col gap-1">
-                        <TextCaption as="span" className="app-muted text-[11px] uppercase tracking-wider">Location / Tags</TextCaption>
+                        <TextCaption as="span" className="text-[var(--ui-muted)] dark:text-gray-400 text-[11px] uppercase tracking-wider font-bold">Location / Tags</TextCaption>
                         <TextBody as="p" className="app-text text-sm">
                           {region ? (stateLoc ? `${region}, ${stateLoc}` : region) : "—"}
-                          {tags.length > 0 && " · " + tags.map((t) => CAUSE_OPTIONS.find((c) => c.value === t)?.label || t).join(", ")}
+                          {tags.length > 0 && <><Icon name="dot" size="xs" className="mx-1" /> {tags.map((t) => CAUSE_OPTIONS.find((c) => c.value === t)?.label || t).join(", ")}</>}
                         </TextBody>
                       </div>
                     </div>
@@ -1189,30 +1253,30 @@ export default function CreateCampaignPage() {
                   </div>
 
                   {/* Section: Verification & Escrow */}
-                  <div className="wizard-review-section" style={{ borderBottom: "none", paddingBottom: 0 }}>
+                  <div className="wizard-review-section bg-[var(--ui-surface-elev)]/30 p-5 rounded-2xl border border-[var(--ui-border)]">
                     <div className="wizard-review-header">
-                      <TextLabel1 as="h3" className="app-text">Verification & Escrow</TextLabel1>
+                      <TextLabel1 as="h3" className="brand-green font-bold text-base">Verification & Escrow</TextLabel1>
                       <button type="button" onClick={() => goToStep(3)} className="wizard-review-edit">
-                        <Edit3 className="mr-1 h-3.5 w-3.5" /> Edit
+                        <Icon name="pencil" size="s" className="mr-1" /> Edit
                       </button>
                     </div>
                     <div className="wizard-review-grid flex flex-col sm:grid sm:grid-cols-2 gap-4">
                       <div className="flex flex-col gap-1">
-                        <TextCaption as="span" className="app-muted text-[11px] uppercase tracking-wider">Beneficiary Account</TextCaption>
+                        <TextCaption as="span" className="text-[var(--ui-muted)] dark:text-gray-400 text-[11px] uppercase tracking-wider font-bold">Beneficiary Account</TextCaption>
                         <TextBody as="p" className="app-text font-mono text-sm leading-tight">
                           {address ? `${address.slice(0, 10)}...${address.slice(-6)}` : "—"}
                         </TextBody>
                       </div>
                       <div className="flex flex-col gap-1">
-                        <TextCaption as="span" className="app-muted text-[11px] uppercase tracking-wider">Attestation</TextCaption>
+                        <TextCaption as="span" className="text-[var(--ui-muted)] dark:text-gray-400 text-[11px] uppercase tracking-wider font-bold">Attestation</TextCaption>
                         <TextBody as="p" className="app-text text-sm leading-tight">
                           {VALIDATORS.find((v) => v.value === attestationService)?.label || "None"}
                         </TextBody>
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {superfluidEnabled && <Tag colorScheme="blue" emphasis="low">⚡ Superfluid</Tag>}
-                      {permanentStorage && <Tag colorScheme="green" emphasis="low">📦 IPFS Storage</Tag>}
+                      {superfluidEnabled && <Tag colorScheme="blue" emphasis="low" start={<Icon name="lightning" size="xs" />}>Superfluid</Tag>}
+                      {permanentStorage && <Tag colorScheme="green" emphasis="low" start={<Icon name="box" size="xs" />}>IPFS Storage</Tag>}
                       {!superfluidEnabled && !permanentStorage && (
                         <TextCaption as="span" className="app-muted">No optional features enabled</TextCaption>
                       )}
@@ -1237,7 +1301,7 @@ export default function CreateCampaignPage() {
 
                 {/* Launch buttons */}
                 <div className="wizard-nav">
-                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<ChevronLeft className="h-4 w-4" />} onClick={goBack}>
+                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
                     Back
                   </Button>
                   <Button
@@ -1245,7 +1309,7 @@ export default function CreateCampaignPage() {
                     className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2"
                     onClick={handleSubmit}
                     disabled={!canSubmit || isPendingCreate || isConfirmingCreate}
-                    start={!(isSubmitting || isPendingCreate || isConfirmingCreate) && <span className="text-lg">🚀</span>}
+                    start={!(isSubmitting || isPendingCreate || isConfirmingCreate) && <Icon name="create" size="s" />}
                   >
                     {isSubmitting || isPendingCreate || isConfirmingCreate
                       ? "Creating..."
@@ -1255,12 +1319,12 @@ export default function CreateCampaignPage() {
               </div>
             )}
 
-            {/* ---- Confirming tx banner ---- */}
+            {/* ---- Confirming tx / Post-tx signing ---- */}
             {(submitStep === "creating" || isPendingCreate || isConfirmingCreate) && (
-              <div className="mt-6 flex items-center gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-4">
+              <div className="mt-6 flex items-center gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-brand-amber)]/10 border-[var(--ui-brand-amber)]/20 p-4">
                 <Spinner size={3} accessibilityLabel="Confirming transaction" />
                 <div>
-                  <TextBody as="p" className="app-text font-medium">Waiting for on-chain confirmation...</TextBody>
+                  <TextBody as="p" className="app-text font-medium text-amber-600">Waiting for on-chain confirmation...</TextBody>
                   {txCreate && (
                     <TextCaption as="p" className="app-muted mt-1">
                       Tx: <a href={"https://basescan.org/tx/" + txCreate} target="_blank" rel="noopener noreferrer" className="link-amber">{String(txCreate).slice(0, 14)}...</a>
@@ -1270,12 +1334,50 @@ export default function CreateCampaignPage() {
               </div>
             )}
 
+            {submitStep !== "done" && createdCampaignId !== undefined && (
+              <div className="mt-6 rounded-xl border-2 border-[var(--ui-brand-green)] bg-[var(--ui-brand-green)]/5 p-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="flex items-start gap-4">
+                  <div className="bg-[var(--ui-brand-green)] p-2 rounded-full text-white">
+                    <Icon name="circleCheckmark" size="m" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-[var(--ui-brand-green)]">On-chain Campaign Created!</h3>
+                    <p className="app-text text-sm mt-1">Success! Your campaign is now live on the blockchain. Now, please sign a one-time message to verify your identity and save the campaign details to our discovery engine.</p>
+                  </div>
+                </div>
+                <div className="mt-6 flex justify-end">
+                  <Button
+                    variant="primary"
+                    onClick={handleSignAndSave}
+                    disabled={submitStep === "signing" || submitStep === "saving"}
+                    className="shadow-lg hover:scale-105 transition-transform"
+                    start={(submitStep === "signing" || submitStep === "saving") ? <Spinner size={2} /> : <Icon name="pencil" size="s" />}
+                  >
+                    {submitStep === "signing" ? "Waiting for Sign..." : submitStep === "saving" ? "Saving..." : "Sign & Finalize"}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {submitStep === "done" && (
+              <div className="mt-6 rounded-xl border-2 border-[var(--ui-brand-green)] bg-[var(--ui-brand-green)]/5 p-6 text-center">
+                <div className="inline-flex bg-[var(--ui-brand-green)] p-3 rounded-full text-white mb-4">
+                  <Icon name="circleCheckmark" size="l" />
+                </div>
+                <h3 className="text-xl font-bold text-[var(--ui-brand-green)]">Congratulations!</h3>
+                <p className="app-text mt-2 mb-6">Your campaign is fully registered and visible to everyone.</p>
+                <Button variant="primary" as={Link} href={`/campaigns/${createdCampaignId}`} className="w-full">
+                  Go to Campaign Page
+                </Button>
+              </div>
+            )}
+
           </div>
 
           {/* ---- Draft saved toast ---- */}
           {showDraftToast && (
             <div className="wizard-toast">
-              <CheckCircle2 className="h-4 w-4 text-[var(--ui-brand-green)]" />
+              <Icon name="circleCheckmark" size="s" className="text-[var(--ui-brand-green)]" />
               <span>Draft saved</span>
             </div>
           )}

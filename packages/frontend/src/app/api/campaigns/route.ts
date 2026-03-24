@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+import { verifyAminiSignature } from "@/lib/auth";
 
 function err(message: string, status = 400) {
   return Response.json({ ok: false, message }, { status });
@@ -26,6 +27,8 @@ type CampaignPayload = {
   impactMetrics?: Array<{ name: string; target: string }>;
   milestoneData?: Array<{ title: string; description?: string; amount: string }>;
   organizationId?: string;
+  signature: string;
+  signatureTimestamp: string;
 };
 
 /**
@@ -43,6 +46,15 @@ export async function POST(req: Request) {
     }
     if (!payload.owner || !payload.beneficiary) {
       return err("owner and beneficiary are required.");
+    }
+
+    // signature verification
+    if (!payload.signature || !payload.signatureTimestamp) {
+      return err("Blockchain signature is required.", 401);
+    }
+    const sigResult = await verifyAminiSignature("Create Campaign", payload.owner, payload.signature, payload.signatureTimestamp);
+    if (!sigResult.ok) {
+      return err(sigResult.message ?? "Invalid signature", 401);
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

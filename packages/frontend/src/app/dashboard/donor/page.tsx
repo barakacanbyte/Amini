@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, ChevronDown } from "lucide-react";
+import { Icon } from "@coinbase/cds-web/icons";
 
 // Types
 interface Campaign {
@@ -100,7 +100,7 @@ export default function DonorDashboard() {
         <div className="flex-1 min-w-[200px] space-y-1.5">
           <label className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Search Campaigns</label>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ui-muted)]" />
+            <Icon name="search" size="m" className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ui-muted)]" />
             <input 
               type="text" 
               placeholder="Mission name or architect..." 
@@ -118,7 +118,7 @@ export default function DonorDashboard() {
               <option>South America</option>
               <option>Asia</option>
             </select>
-            <ChevronDown className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 pointer-events-none text-[var(--ui-muted)]" />
+            <Icon name="caretDown" size="m" className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--ui-muted)]" />
           </div>
         </div>
 
@@ -131,7 +131,7 @@ export default function DonorDashboard() {
               <option>Humanitarian</option>
               <option>Education</option>
             </select>
-            <ChevronDown className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 pointer-events-none text-[var(--ui-muted)]" />
+            <Icon name="caretDown" size="m" className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--ui-muted)]" />
           </div>
         </div>
       </div>

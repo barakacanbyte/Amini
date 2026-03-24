@@ -9,6 +9,7 @@ import { CDPReactProvider } from "@coinbase/cdp-react";
 import { OnchainKitProvider } from "@coinbase/onchainkit";
 import { ThemeProvider } from "next-themes";
 import { CdsThemeBridge } from "@/components/CdsThemeBridge";
+import { MediaQueryProvider } from "@coinbase/cds-web/system";
 import { getCdpWalletConfig } from "@/lib/cdpWalletConfig";
 import { getPublicLogoUrl } from "@/lib/branding";
 import { cdpEmbeddedWalletTheme } from "@/theme/cdpEmbeddedWalletTheme";
@@ -117,15 +118,17 @@ function CdpOptionalShell({ children }: { children: ReactNode }) {
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-      <CdsThemeBridge>
-        <WagmiProvider config={wagmiConfig}>
-          <QueryClientProvider client={queryClient}>
-            <CdpOptionalShell>
-              <OnchainKitProviders>{children}</OnchainKitProviders>
-            </CdpOptionalShell>
-          </QueryClientProvider>
-        </WagmiProvider>
-      </CdsThemeBridge>
+      <MediaQueryProvider>
+        <CdsThemeBridge>
+          <WagmiProvider config={wagmiConfig}>
+            <QueryClientProvider client={queryClient}>
+              <CdpOptionalShell>
+                <OnchainKitProviders>{children}</OnchainKitProviders>
+              </CdpOptionalShell>
+            </QueryClientProvider>
+          </WagmiProvider>
+        </CdsThemeBridge>
+      </MediaQueryProvider>
     </ThemeProvider>
   );
 }

@@ -8,11 +8,9 @@ import {
 } from "@amini/shared";
 import type { Address } from "viem";
 
-const chainId = typeof window !== "undefined"
-  ? Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? BASE_MAINNET_CHAIN_ID)
-  : BASE_MAINNET_CHAIN_ID;
-
-const isTestnet = chainId === BASE_SEPOLIA_CHAIN_ID;
+const stage = process.env.NEXT_PUBLIC_STAGE ?? "testnet";
+const isTestnet = stage === "testnet";
+const chainId = isTestnet ? BASE_SEPOLIA_CHAIN_ID : BASE_MAINNET_CHAIN_ID;
 
 export const config = {
   chainId,

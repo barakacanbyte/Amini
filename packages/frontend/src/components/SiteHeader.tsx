@@ -13,6 +13,8 @@ import {
   WalletDropdown,
   WalletDropdownDisconnect,
 } from "@coinbase/onchainkit/wallet";
+import { Dropdown, MenuItem } from "@coinbase/cds-web/dropdown";
+import { Icon } from "@coinbase/cds-web/icons";
 
 const cdpConfigured = Boolean((process.env.NEXT_PUBLIC_CDP_PROJECT_ID ?? "").trim());
 
@@ -45,6 +47,63 @@ function NavLink({
     >
       {children}
     </Link>
+  );
+}
+
+function ProfileMenu() {
+  return (
+    <Dropdown
+      content={
+        <div className="flex flex-col min-w-[220px] rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] py-2 shadow-xl dark:bg-[var(--ui-surface)]">
+          <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
+            Dashboards
+          </div>
+          <MenuItem
+            as={Link}
+            href="/dashboard/donor"
+            value="donor"
+            className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            <Icon name="account" size="m" className="text-[var(--ui-muted)]" /> Donor
+          </MenuItem>
+          <MenuItem
+            as={Link}
+            href="/dashboard/organization"
+            value="organization"
+            className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            <Icon name="peopleGroup" size="m" className="text-[var(--ui-muted)]" /> Organization
+          </MenuItem>
+          <MenuItem
+            as={Link}
+            href="/dashboard/admin"
+            value="admin"
+            className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            <Icon name="securityShield" size="m" className="text-[var(--ui-muted)]" /> Admin
+          </MenuItem>
+
+          <div className="my-1 h-px w-full bg-[var(--ui-border)]" />
+          
+          <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
+            Actions
+          </div>
+          <MenuItem
+            as={Link}
+            href="/organizations/register"
+            value="register"
+            className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            <Icon name="document" size="m" className="text-[var(--ui-muted)]" /> Get Verified
+          </MenuItem>
+        </div>
+      }
+      contentPosition={{ placement: "bottom-end", gap: 8 }}
+    >
+      <button className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] transition-colors hover:bg-black/5 focus:outline-none dark:hover:bg-white/5">
+        <Icon name="menu" size="m" className="text-[var(--ui-text)]" />
+      </button>
+    </Dropdown>
   );
 }
 
@@ -115,6 +174,7 @@ export function SiteHeader() {
             >
               Start a campaign
             </Button>
+             <ProfileMenu />
           </div>
         </div>
       </div>

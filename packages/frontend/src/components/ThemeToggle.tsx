@@ -3,7 +3,7 @@
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import { Moon, Sun } from "lucide-react";
+import { Icon } from "@coinbase/cds-web/icons";
 
 /** Square icon control to align with header `compact` CDS buttons (40×40, circular). */
 export function ThemeToggle() {
@@ -41,9 +41,9 @@ export function ThemeToggle() {
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}
     >
       {isDark ? (
-        <Sun className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+        <Icon name="light" size="m" className="text-gray-500 dark:text-gray-400" />
       ) : (
-        <Moon className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+        <Icon name="moon" size="m" className="text-gray-500 dark:text-gray-400" />
       )}
     </Button>
   );

@@ -16,7 +16,8 @@
   "devDependencies": {
     "dotenv-cli": "^11.0.0",
     "eslint": "^8.57.0",
-    "prettier": "^3.2.5"
+    "prettier": "^3.2.5",
+    "supabase": "^2.83.0"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {

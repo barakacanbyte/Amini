@@ -10,7 +10,7 @@
 
 :root {
   /* Light theme */
-  --ui-bg: #1a1a1a;
+  --ui-bg: #fafafa;
   --ui-surface: #f3f4f6;
   --ui-surface-elev: #ffffff;
   --ui-border: rgba(0, 0, 0, 0.1);
@@ -22,8 +22,8 @@
   --ui-brand-brown-soft: #e8d5b0;
   --ui-brand-amber: #d4a853;
   --ui-focus-ring: rgba(16, 185, 129, 0.35);
-  --ui-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.35);
-  --ui-shadow-md: 0 12px 28px rgba(0, 0, 0, 0.22);
+  --ui-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.08);
+  --ui-shadow-md: 0 12px 28px rgba(0, 0, 0, 0.06);
 }
 
 .dark {

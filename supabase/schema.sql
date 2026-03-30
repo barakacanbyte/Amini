@@ -10,6 +10,7 @@ CREATE TYPE org_status AS ENUM ('pending', 'approved', 'rejected');
 CREATE TABLE public.profiles (
   wallet text PRIMARY KEY,
   role user_role NOT NULL DEFAULT 'donor',
+  roles text[] DEFAULT ARRAY['donor'::text],
   name text,
   email text,
   avatar_url text,
@@ -142,6 +143,7 @@ CREATE TABLE public.reputation_scores (
 );
 
 CREATE INDEX idx_profiles_role ON public.profiles(role);
+CREATE INDEX idx_profiles_roles ON public.profiles USING GIN(roles);
 CREATE INDEX idx_organizations_wallet ON public.organizations(wallet);
 CREATE INDEX idx_organizations_status ON public.organizations(status);
 CREATE INDEX idx_sybil_wallet ON public.sybil_verifications(wallet);

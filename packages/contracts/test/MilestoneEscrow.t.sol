@@ -6,6 +6,7 @@ import {CampaignRegistry} from "../src/CampaignRegistry.sol";
 import {MilestoneEscrow} from "../src/MilestoneEscrow.sol";
 import {MockEAS} from "./mocks/MockEAS.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract MilestoneEscrowTest is Test {
     CampaignRegistry registry;
@@ -20,11 +21,29 @@ contract MilestoneEscrowTest is Test {
     address depositor = address(3);
 
     function setUp() public {
-        registry = new CampaignRegistry();
+        CampaignRegistry registryImpl = new CampaignRegistry();
+        ERC1967Proxy registryProxy = new ERC1967Proxy(
+            address(registryImpl),
+            abi.encodeWithSelector(CampaignRegistry.initialize.selector, owner)
+        );
+        registry = CampaignRegistry(address(registryProxy));
+
         eas = new MockEAS();
         token = new MockERC20();
         token.mint(depositor, 1000e6);
-        escrow = new MilestoneEscrow(address(registry), address(eas), SCHEMA_UID);
+
+        MilestoneEscrow escrowImpl = new MilestoneEscrow();
+        ERC1967Proxy escrowProxy = new ERC1967Proxy(
+            address(escrowImpl),
+            abi.encodeWithSelector(
+                MilestoneEscrow.initialize.selector,
+                owner,
+                address(registry),
+                address(eas),
+                SCHEMA_UID
+            )
+        );
+        escrow = MilestoneEscrow(address(escrowProxy));
 
         vm.prank(owner);
         campaignId = registry.createCampaign(

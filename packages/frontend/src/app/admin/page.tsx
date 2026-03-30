@@ -8,6 +8,13 @@ import { TextBody } from "@coinbase/cds-web/typography/TextBody";
 
 const tools = [
   {
+    title: "Organizations Management",
+    description:
+      "Review, approve, or reject organization registrations. View all organizations by status.",
+    href: "/admin/organizations",
+    cta: "Manage organizations",
+  },
+  {
     title: "Identity setup",
     description:
       "Check that sign-in with World ID is configured for campaign owners and recipients.",

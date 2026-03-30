@@ -1,20 +1,17 @@
 import {
   campaignRegistryAbi as registryAbi,
   milestoneEscrowAbi as escrowAbi,
-  USDC_BASE_MAINNET,
   USDC_BASE_SEPOLIA,
-  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
 } from "@amini/shared";
 import type { Address } from "viem";
 
-const stage = process.env.NEXT_PUBLIC_STAGE ?? "testnet";
-const isTestnet = stage === "testnet";
-const chainId = isTestnet ? BASE_SEPOLIA_CHAIN_ID : BASE_MAINNET_CHAIN_ID;
+/** App targets Base Sepolia only (see `providers.tsx` + `auth.ts`). */
+const chainId = BASE_SEPOLIA_CHAIN_ID;
 
 export const config = {
   chainId,
-  usdc: (process.env.NEXT_PUBLIC_USDC_ADDRESS as Address) || (isTestnet ? USDC_BASE_SEPOLIA : USDC_BASE_MAINNET),
+  usdc: (process.env.NEXT_PUBLIC_USDC_ADDRESS as Address) || USDC_BASE_SEPOLIA,
   campaignRegistry: process.env.NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS as Address | undefined,
   escrow: process.env.NEXT_PUBLIC_ESCROW_ADDRESS as Address | undefined,
 } as const;

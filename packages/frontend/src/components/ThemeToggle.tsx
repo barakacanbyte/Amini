@@ -1,18 +1,12 @@
 "use client";
 
 import { Button } from "@coinbase/cds-web/buttons/Button";
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
 import { Icon } from "@coinbase/cds-web/icons";
+import { useAppTheme } from "@/context/AppThemeContext";
 
 /** Square icon control to align with header `compact` CDS buttons (40×40, circular). */
 export function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const { mounted, resolvedTheme, setTheme } = useAppTheme();
 
   const shared = {
     variant: "secondary" as const,

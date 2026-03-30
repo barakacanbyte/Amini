@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IEAS, Attestation} from "./interfaces/IEAS.sol";
 import {CampaignRegistry} from "./CampaignRegistry.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 
 /// @title MilestoneEscrow
 /// @notice Holds USDC per campaign; releases milestones only when valid EAS attestation exists.
-contract MilestoneEscrow {
-    CampaignRegistry public immutable registry;
-    IEAS public immutable eas;
+///         Upgradable using the UUPS Proxy pattern.
+contract MilestoneEscrow is Initializable, UUPSUpgradeable, OwnableUpgradeable {
+    CampaignRegistry public registry;
+    IEAS public eas;
 
-    /// Schema UID for "milestone completion" attestations (set at deploy)
-    bytes32 public immutable milestoneSchemaUID;
+    /// @notice Schema UID for "milestone completion" attestations
+    bytes32 public milestoneSchemaUID;
 
     struct EscrowState {
         address token;
@@ -21,6 +25,8 @@ contract MilestoneEscrow {
         uint256 releasedCount;
         bool initialized;
     }
+    
+    /// @notice Mapping from campaign ID to its respective EscrowState
     mapping(uint256 => EscrowState) public escrows;
 
     event CampaignEscrowInitialized(
@@ -43,13 +49,36 @@ contract MilestoneEscrow {
     error InsufficientDeposit();
     error TransferFailed();
 
-    constructor(address _registry, address _eas, bytes32 _milestoneSchemaUID) {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /// @notice Initializes the MilestoneEscrow contract.
+    /// @param initialOwner Address of the contract owner (admin capable of upgrading).
+    /// @param _registry Address of the CampaignRegistry.
+    /// @param _eas Address of the Ethereum Attestation Service.
+    /// @param _milestoneSchemaUID The schema UID used for milestone completion attestations.
+    function initialize(
+        address initialOwner,
+        address _registry,
+        address _eas,
+        bytes32 _milestoneSchemaUID
+    ) initializer public {
+        __Ownable_init(initialOwner);
+        
         registry = CampaignRegistry(_registry);
         eas = IEAS(_eas);
         milestoneSchemaUID = _milestoneSchemaUID;
     }
 
+    /// @notice Restricts upgrade authorization to the contract owner.
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+
     /// @notice Initialize escrow for a campaign with milestone amounts (call after CampaignRegistry.createCampaign).
+    /// @param campaignId The ID of the campaign in the registry.
+    /// @param token The ERC20 token address used for funding.
+    /// @param milestoneAmounts An array containing the exact amount to be released per milestone.
     function initializeCampaign(
         uint256 campaignId,
         address token,
@@ -79,6 +108,8 @@ contract MilestoneEscrow {
     }
 
     /// @notice Deposit USDC (or other ERC20) into campaign escrow.
+    /// @param campaignId The ID of the campaign to fund.
+    /// @param amount The amount of the ERC20 token to deposit.
     function deposit(uint256 campaignId, uint256 amount) external {
         EscrowState storage e = escrows[campaignId];
         if (!e.initialized) revert CampaignNotInitialized();
@@ -90,6 +121,8 @@ contract MilestoneEscrow {
     }
 
     /// @notice Release one milestone to beneficiary after valid EAS attestation.
+    /// @param campaignId The relevant campaign ID.
+    /// @param milestoneIndex The index of the milestone being released.
     /// @param attestationUID UID of the attestation (must match milestoneSchemaUID and encode campaignId + milestoneIndex).
     function releaseMilestone(uint256 campaignId, uint256 milestoneIndex, bytes32 attestationUID)
         external
@@ -124,6 +157,7 @@ contract MilestoneEscrow {
         }
     }
 
+    /// @notice Internal helper to query CampaignRegistry for campaign data.
     function _getCampaign(uint256 campaignId)
         internal
         view
@@ -133,6 +167,7 @@ contract MilestoneEscrow {
         return (c.owner, c.beneficiary, c.targetAmount, c.milestoneCount, c.metadataUri, c.exists);
     }
 
+    /// @notice Returns the full state of a campaign's escrow.
     function getEscrowState(uint256 campaignId)
         external
         view

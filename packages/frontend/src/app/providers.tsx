@@ -7,35 +7,37 @@ import { coinbaseWallet } from "wagmi/connectors";
 import { createCDPEmbeddedWalletConnector } from "@coinbase/cdp-wagmi";
 import { CDPReactProvider } from "@coinbase/cdp-react";
 import { OnchainKitProvider } from "@coinbase/onchainkit";
-import { ThemeProvider } from "next-themes";
 import { CdsThemeBridge } from "@/components/CdsThemeBridge";
 import { MediaQueryProvider } from "@coinbase/cds-web/system";
 import { getCdpWalletConfig } from "@/lib/cdpWalletConfig";
 import { getPublicLogoUrl } from "@/lib/branding";
 import { cdpEmbeddedWalletTheme } from "@/theme/cdpEmbeddedWalletTheme";
+import { AppThemeProvider } from "@/context/AppThemeContext";
+import {
+  AminiSigningProviderCdp,
+  AminiSigningProviderWagmi,
+} from "@/context/AminiSigningContext";
 import type { ReactNode } from "react";
 import type { Chain } from "viem/chains";
 
 const queryClient = new QueryClient();
 
+/** Base mainnet RPC when the user switches networks in the wallet */
 const baseRpc =
-  process.env.NEXT_PUBLIC_RPC_URL ||
   process.env.NEXT_PUBLIC_BASE_RPC ||
+  process.env.NEXT_PUBLIC_BASE_MAINNET_RPC ||
   "https://mainnet.base.org";
 
+/** Default app chain: Base Sepolia (`NEXT_PUBLIC_RPC_URL` targets this). */
 const baseSepoliaRpc =
-  process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC || "https://sepolia.base.org";
+  process.env.NEXT_PUBLIC_RPC_URL ||
+  process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC ||
+  "https://sepolia.base.org";
 
 const cdpWalletConfig = getCdpWalletConfig();
 
-/**
- * Base + Base Sepolia both enabled; default chain order follows `NEXT_PUBLIC_CHAIN_ID`
- * so the wallet’s initial chain matches app contract config (`src/lib/contracts.ts`).
- */
-const chainIdEnv = Number(process.env.NEXT_PUBLIC_CHAIN_ID || base.id);
-const defaultChain = chainIdEnv === baseSepolia.id ? baseSepolia : base;
-const chains: [Chain, ...Chain[]] =
-  defaultChain.id === base.id ? [base, baseSepolia] : [baseSepolia, base];
+const defaultChain = baseSepolia;
+const chains: [Chain, ...Chain[]] = [baseSepolia, base];
 
 /**
  * Wallet strategy:
@@ -107,17 +109,23 @@ function OnchainKitProviders({ children }: { children: ReactNode }) {
 }
 
 function CdpOptionalShell({ children }: { children: ReactNode }) {
-  if (!cdpWalletConfig) return <>{children}</>;
+  if (!cdpWalletConfig) {
+    return (
+      <AminiSigningProviderWagmi>
+        {children}
+      </AminiSigningProviderWagmi>
+    );
+  }
   return (
     <CDPReactProvider config={cdpWalletConfig} theme={cdpEmbeddedWalletTheme}>
-      {children}
+      <AminiSigningProviderCdp>{children}</AminiSigningProviderCdp>
     </CDPReactProvider>
   );
 }
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <AppThemeProvider>
       <MediaQueryProvider>
         <CdsThemeBridge>
           <WagmiProvider config={wagmiConfig}>
@@ -129,6 +137,6 @@ export function Providers({ children }: { children: ReactNode }) {
           </WagmiProvider>
         </CdsThemeBridge>
       </MediaQueryProvider>
-    </ThemeProvider>
+    </AppThemeProvider>
   );
 }

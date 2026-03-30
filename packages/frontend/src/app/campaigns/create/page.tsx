@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
-import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSignMessage } from "wagmi";
+import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAminiSigning } from "@/context/AminiSigningContext";
 import { decodeEventLog } from "viem";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { TextBody } from "@coinbase/cds-web/typography/TextBody";
@@ -109,7 +110,8 @@ function clearDraft() {
 /* ------------------------------------------------------------------ */
 
 export default function CreateCampaignPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, signMessageAsync, getCdpAccessToken } =
+    useAminiSigning();
 
   /* ---- Wizard step ---- */
   const [currentStep, setCurrentStep] = useState(1);
@@ -153,7 +155,6 @@ export default function CreateCampaignPage() {
 
   /* ---- Contract interaction ---- */
   const { writeContract: writeRegistry, data: txCreate, isPending: isPendingCreate } = useWriteContract();
-  const { signMessageAsync } = useSignMessage();
   const { data: receiptCreate, isLoading: isConfirmingCreate } = useWaitForTransactionReceipt({ hash: txCreate });
   const { writeContract: writeEscrow, data: txInit, isPending: isPendingInit } = useWriteContract();
   const { isLoading: isConfirmingInit, data: receiptInit } = useWaitForTransactionReceipt({ hash: txInit });
@@ -242,53 +243,42 @@ export default function CreateCampaignPage() {
     return undefined;
   }, [receiptCreate]);
 
-  /* ---- Final Step: Sign & Save to Supabase ---- */
   async function handleSignAndSave() {
     if (createdCampaignId === undefined || !receiptCreate || !address) return;
-    setSubmitStep("signing");
+    setSubmitStep("saving");
 
     try {
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const message = `Amini Verification\nAction: Create Campaign\nWallet: ${address.toLowerCase()}\nTimestamp: ${timestamp}`;
+      const cdpToken = await getCdpAccessToken();
       
-      let signature: string;
-      try {
-        signature = await signMessageAsync({ message });
-      } catch (err) {
-        setSubmitStep("signing"); // Stay here but maybe show error
-        alert("Signature rejected. You must sign to finalize your campaign.");
-        return;
-      }
+      const payload: Record<string, unknown> = {
+        campaignId: createdCampaignId,
+        chainId: config.chainId,
+        owner: address.toLowerCase(),
+        beneficiary: address.toLowerCase(),
+        targetAmount: parseUsdc(targetAmount).toString(),
+        milestoneCount: milestones.length,
+        metadataUri,
+        txHash: txCreate,
+        blockNumber: Number(receiptCreate.blockNumber),
+        title,
+        description,
+        imageUrl,
+        region: region || undefined,
+        tags: tags.length ? tags : undefined,
+        deadline: deadline || undefined,
+        contactEmail: contactEmail || undefined,
+        beneficiaryDescription: beneficiaryDescription || undefined,
+        socialLinks: socialLinks.length ? socialLinks : undefined,
+        impactMetrics: impactMetrics.length ? impactMetrics : undefined,
+        milestoneData: milestones,
+        organizationId: orgId || undefined,
+      };
+      if (cdpToken) payload.cdpAccessToken = cdpToken;
 
-      setSubmitStep("saving");
       const res = await fetch("/api/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          campaignId: createdCampaignId,
-          chainId: config.chainId,
-          owner: address.toLowerCase(),
-          beneficiary: address.toLowerCase(),
-          targetAmount: parseUsdc(targetAmount).toString(),
-          milestoneCount: milestones.length,
-          metadataUri,
-          txHash: txCreate,
-          blockNumber: Number(receiptCreate.blockNumber),
-          title,
-          description,
-          imageUrl,
-          region: region || undefined,
-          tags: tags.length ? tags : undefined,
-          deadline: deadline || undefined,
-          contactEmail: contactEmail || undefined,
-          beneficiaryDescription: beneficiaryDescription || undefined,
-          socialLinks: socialLinks.length ? socialLinks : undefined,
-          impactMetrics: impactMetrics.length ? impactMetrics : undefined,
-          milestoneData: milestones,
-          organizationId: orgId || undefined,
-          signature,
-          signatureTimestamp: timestamp,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();

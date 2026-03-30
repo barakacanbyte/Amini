@@ -4,7 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@coinbase/cds-web/icons";
 import Image from "next/image";
-import { useAccount } from "wagmi";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { useAppTheme } from "@/context/AppThemeContext";
+import { useAminiSigning } from "@/context/AminiSigningContext";
 
 export type DashboardRole = "donor" | "organization" | "admin";
 
@@ -15,7 +17,8 @@ interface SidebarProps {
 
 export function Sidebar({ role, onRoleChange }: SidebarProps) {
   const pathname = usePathname();
-  const { address } = useAccount();
+  const { address } = useAminiSigning();
+  const { mounted } = useAppTheme();
 
   const navItems = {
     donor: [
@@ -98,7 +101,13 @@ export function Sidebar({ role, onRoleChange }: SidebarProps) {
         })}
       </nav>
 
-      <div className="mt-auto border-t border-[var(--ui-border)] p-4">
+      <div className="mt-auto border-t border-[var(--ui-border)] p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-[var(--ui-muted)]">
+            {mounted ? "Theme" : ""}
+          </span>
+          <ThemeToggle />
+        </div>
         <div className="flex justify-between text-xs text-[var(--ui-muted)]">
           <Link href="/privacy" className="hover:text-[var(--ui-text)]">Privacy</Link>
           <Link href="/terms" className="hover:text-[var(--ui-text)]">Terms</Link>

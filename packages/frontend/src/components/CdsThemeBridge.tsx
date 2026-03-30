@@ -1,26 +1,17 @@
 "use client";
 
 import { ThemeProvider as CdsThemeProvider } from "@coinbase/cds-web/system";
-import { useTheme } from "next-themes";
-import { useEffect, useState, type ReactNode } from "react";
+import { useAppTheme } from "@/context/AppThemeContext";
 import { aminiCdsTheme } from "@/theme/aminiCdsTheme";
+import type { ReactNode } from "react";
 
 /**
- * Syncs CDS `ThemeProvider` with `next-themes` so CDS components pick light/dark tokens.
+ * Syncs CDS `ThemeProvider` with the app theme context so CDS components pick light/dark tokens.
  */
 export function CdsThemeBridge({ children }: { children: ReactNode }) {
-  const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const { mounted, resolvedTheme } = useAppTheme();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const activeColorScheme = !mounted
-    ? "light"
-    : resolvedTheme === "dark"
-      ? "dark"
-      : "light";
+  const activeColorScheme = mounted && resolvedTheme === "dark" ? "dark" : "light";
 
   return (
     <CdsThemeProvider theme={aminiCdsTheme} activeColorScheme={activeColorScheme}>

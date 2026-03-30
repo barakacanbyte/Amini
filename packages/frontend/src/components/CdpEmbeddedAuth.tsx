@@ -1,12 +1,22 @@
 "use client";
 
 /**
- * NedaPay-style CDP auth: controlled `SignInModal` + `SignInModalContent` (not `AuthButton`).
- * `WagmiProvider` must wrap `CDPReactProvider` so the modal / embedded connector behave correctly.
+ * CDP embedded auth: `AuthButton` uses CDP's `useIsSignedIn` so the header updates as soon as
+ * email/passkey sign-in completes — not only when wagmi finishes connecting the embedded connector
+ * (which could lag and left "Log in" visible). Custom slots keep the same "Log in" / address UI.
+ *
+ * Uses `useEvmAddress` from CDP hooks to display the smart account address,
+ * ensuring it matches the address shown in forms (via `useAminiSigning`).
+ *
+ * `WagmiProvider` must wrap `CDPReactProvider` (see `providers.tsx`).
  */
-import { SignInModal, SignInModalContent, SignOutButton } from "@coinbase/cdp-react";
-import { useAccount } from "wagmi";
-import { useEffect, useState } from "react";
+import {
+  AuthButton,
+  SignInModal,
+  SignInModalContent,
+  SignOutButton,
+} from "@coinbase/cdp-react";
+import { useEvmAddress } from "@coinbase/cdp-hooks";
 
 function shortAddress(address?: string) {
   if (!address) return "Account";
@@ -14,33 +24,40 @@ function shortAddress(address?: string) {
 }
 
 export function CdpEmbeddedAuth() {
-  const [open, setOpen] = useState(false);
-  const { address, isConnected } = useAccount();
-
-  useEffect(() => {
-    if (isConnected && open) setOpen(false);
-  }, [isConnected, open]);
-
-  if (isConnected && address) {
-    return (
-      <SignOutButton className="flex min-h-10 shrink-0 items-center" variant="secondary">
-        {shortAddress(address)}
-      </SignOutButton>
-    );
-  }
+  const { evmAddress } = useEvmAddress();
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex min-h-10 shrink-0 items-center rounded-lg px-4 text-sm font-semibold transition-colors"
-      >
-        Log in
-      </button>
-      <SignInModal authMethods={["email"]} open={open} setIsOpen={setOpen}>
-        <SignInModalContent />
-      </SignInModal>
-    </>
+    <AuthButton
+      className="flex min-h-10 shrink-0 items-center"
+      closeOnSuccessDelay={800}
+      signInModal={({ open, setIsOpen, onSuccess }) => (
+        <>
+          <button
+            type="button"
+            onClick={() => setIsOpen?.(true)}
+            className="flex min-h-10 shrink-0 items-center rounded-lg px-4 text-sm font-semibold transition-colors"
+          >
+            Log in
+          </button>
+          <SignInModal
+            authMethods={["email"]}
+            open={open}
+            setIsOpen={setIsOpen ?? (() => {})}
+            onSuccess={onSuccess}
+          >
+            <SignInModalContent />
+          </SignInModal>
+        </>
+      )}
+      signOutButton={({ onSuccess }) => (
+        <SignOutButton
+          className="flex min-h-10 shrink-0 items-center"
+          variant="secondary"
+          onSuccess={onSuccess}
+        >
+          {shortAddress(evmAddress ?? undefined)}
+        </SignOutButton>
+      )}
+    />
   );
 }

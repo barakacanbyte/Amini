@@ -3,8 +3,24 @@
 import { useState, useEffect } from "react";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { Icon } from "@coinbase/cds-web/icons";
+import { TextBody } from "@coinbase/cds-web/typography/TextBody";
+import { Modal } from "@coinbase/cds-web/overlays/modal/Modal";
+import { ModalHeader } from "@coinbase/cds-web/overlays/modal/ModalHeader";
+import { ModalBody } from "@coinbase/cds-web/overlays/modal/ModalBody";
+import { ModalFooter } from "@coinbase/cds-web/overlays/modal/ModalFooter";
+import { TextInput } from "@coinbase/cds-web/controls/TextInput";
+import Link from "next/link";
+import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { CdpEmbeddedAuth } from "@/components/CdpEmbeddedAuth";
+import {
+  Wallet,
+  ConnectWallet,
+  WalletDropdown,
+  WalletDropdownDisconnect,
+} from "@coinbase/onchainkit/wallet";
 
-// Types
+const cdpConfigured = Boolean((process.env.NEXT_PUBLIC_CDP_PROJECT_ID ?? "").trim());
+
 interface AdminStats {
   totalVolume: string;
   activeCampaigns: number;
@@ -14,56 +30,165 @@ interface AdminStats {
 
 interface PendingOrg {
   id: string;
+  wallet: string;
   name: string;
-  submittedAt: string;
-  location: string;
+  description?: string;
+  website_url?: string;
+  country?: string;
+  official_email?: string;
+  twitter_handle?: string;
+  linkedin_url?: string;
+  ens_name?: string;
+  has_coinbase_verification?: boolean;
+  logo_url?: string;
+  created_at: string;
 }
 
-// Dummy Data
-const DUMMY_STATS: AdminStats = {
-  totalVolume: "$1.2M",
-  activeCampaigns: 42,
-  verifiedOrgs: 18,
-  pendingReviews: 5,
-};
-
-const DUMMY_ORGS: PendingOrg[] = [
-  { id: "1", name: "Global Water Initiative", submittedAt: "2 days ago", location: "Kenya" },
-  { id: "2", name: "Solar for Schools", submittedAt: "3 days ago", location: "Peru" },
-  { id: "3", name: "Agroforestry Alliance", submittedAt: "5 days ago", location: "Senegal" },
-];
-
 export default function AdminDashboard() {
+  const { adminFetch, isConnected } = useAdminAuth();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [pendingOrgs, setPendingOrgs] = useState<PendingOrg[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedOrg, setSelectedOrg] = useState<PendingOrg | null>(null);
+  const [showApproveModal, setShowApproveModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    // Simulate fetching data from Supabase/API
-    const fetchAdminData = async () => {
-      try {
-        // const res = await fetch('/api/admin/dashboard');
-        // const data = await res.json();
-        const data: any = null; // Simulating empty response to trigger dummy data
+    if (isConnected) {
+      fetchAdminData();
+    }
+  }, [isConnected]);
 
-        if (data) {
-          setStats(data.stats);
-          setPendingOrgs(data.pendingOrgs);
-        } else {
-          setStats(DUMMY_STATS);
-          setPendingOrgs(DUMMY_ORGS);
+  const fetchAdminData = async () => {
+    setIsLoading(true);
+    try {
+      const [statsRes, orgsRes] = await Promise.all([
+        adminFetch("/api/admin/stats"),
+        adminFetch("/api/admin/organizations/pending"),
+      ]);
+
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        if (statsData.ok) {
+          setStats(statsData.stats);
         }
-      } catch (error) {
-        console.error("Failed to fetch admin data", error);
-        setStats(DUMMY_STATS);
-        setPendingOrgs(DUMMY_ORGS);
-      } finally {
-        setIsLoading(false);
       }
-    };
 
-    fetchAdminData();
-  }, []);
+      if (orgsRes.ok) {
+        const orgsData = await orgsRes.json();
+        if (orgsData.ok) {
+          setPendingOrgs(orgsData.organizations);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch admin data", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openApproveModal = (org: PendingOrg) => {
+    setSelectedOrg(org);
+    setShowApproveModal(true);
+  };
+
+  const handleApprove = async () => {
+    if (!selectedOrg) return;
+    
+    setIsSubmitting(true);
+    try {
+      const res = await adminFetch(`/api/admin/organizations/${selectedOrg.id}/approve`, {
+        method: "POST",
+      });
+      
+      if (res.ok) {
+        setShowApproveModal(false);
+        setSelectedOrg(null);
+        await fetchAdminData();
+      } else {
+        const data = await res.json();
+        alert(`Failed to approve: ${data.message || "Unknown error"}`);
+      }
+    } catch (error) {
+      console.error("Approval error:", error);
+      alert("Failed to approve organization");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const openRejectModal = (org: PendingOrg) => {
+    setSelectedOrg(org);
+    setRejectReason("");
+    setShowRejectModal(true);
+  };
+
+  const handleReject = async () => {
+    if (!selectedOrg) return;
+    
+    setIsSubmitting(true);
+    try {
+      const res = await adminFetch(`/api/admin/organizations/${selectedOrg.id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: rejectReason }),
+      });
+      
+      if (res.ok) {
+        setShowRejectModal(false);
+        setSelectedOrg(null);
+        setRejectReason("");
+        await fetchAdminData();
+      } else {
+        const data = await res.json();
+        alert(`Failed to reject: ${data.message || "Unknown error"}`);
+      }
+    } catch (error) {
+      console.error("Rejection error:", error);
+      alert("Failed to reject organization");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return date.toLocaleDateString();
+  };
+
+  if (!isConnected) {
+    return (
+      <div className="flex h-64 flex-col items-center justify-center gap-4">
+        <Icon name="wallet" size="l" className="text-[var(--ui-muted)]" />
+        <TextBody className="text-[var(--ui-muted)]">
+          Connect your wallet to access the admin dashboard
+        </TextBody>
+        <div className="amini-header-wallet">
+          {cdpConfigured ? (
+            <div className="amini-header-cdp-login" aria-label="Account">
+              <CdpEmbeddedAuth />
+            </div>
+          ) : (
+            <Wallet>
+              <ConnectWallet disconnectedLabel="Log in" />
+              <WalletDropdown>
+                <WalletDropdownDisconnect />
+              </WalletDropdown>
+            </Wallet>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -128,27 +253,205 @@ export default function AdminDashboard() {
       {/* Pending Verifications */}
       <div className="space-y-4">
         <h2 className="text-lg font-bold text-[var(--ui-text)]">Pending Organization Verifications</h2>
-        <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1">
-          <div className="divide-y divide-[var(--ui-border)]">
+        
+        {pendingOrgs.length === 0 ? (
+          <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-8 text-center">
+            <Icon name="circleCheckmark" size="l" className="mx-auto mb-3 text-[var(--ui-brand-green)]" />
+            <TextBody className="text-[var(--ui-muted)]">No pending organization reviews</TextBody>
+          </div>
+        ) : (
+          <div className="space-y-4">
             {pendingOrgs.map((org) => (
-              <div key={org.id} className="flex items-center justify-between p-4 hover:bg-[var(--ui-surface-elev)] transition-colors rounded-xl">
-                <div>
-                  <p className="font-medium text-[var(--ui-text)]">{org.name}</p>
-                  <p className="text-sm text-[var(--ui-muted)]">Submitted {org.submittedAt} • {org.location}</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="secondary" compact>
-                    Review
-                  </Button>
-                  <Button variant="primary" compact>
-                    Approve
-                  </Button>
+              <div key={org.id} className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-6">
+                <div className="flex items-start gap-6">
+                  {/* Logo */}
+                  {org.logo_url ? (
+                    <img 
+                      src={org.logo_url} 
+                      alt={org.name} 
+                      className="h-16 w-16 rounded-xl object-cover border border-[var(--ui-border)]" 
+                    />
+                  ) : (
+                    <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-[var(--ui-brand-brown-soft)] border border-[var(--ui-border)]">
+                      <Icon name="peopleGroup" size="l" className="text-[var(--ui-brand-brown)]" />
+                    </div>
+                  )}
+                  
+                  {/* Content */}
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-[var(--ui-text)]">{org.name}</h3>
+                      <p className="text-sm text-[var(--ui-muted)] mt-1">
+                        Submitted {formatDate(org.created_at)}
+                        {org.country && ` • ${org.country}`}
+                      </p>
+                    </div>
+                    
+                    {org.description && (
+                      <TextBody className="text-[var(--ui-text)]">{org.description}</TextBody>
+                    )}
+                    
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {org.official_email && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Icon name="email" size="s" className="text-[var(--ui-muted)]" />
+                          <span className="text-[var(--ui-text)]">{org.official_email}</span>
+                        </div>
+                      )}
+                      {org.website_url && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Icon name="globe" size="s" className="text-[var(--ui-muted)]" />
+                          <a 
+                            href={org.website_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-[var(--ui-brand-green)] hover:underline"
+                          >
+                            {org.website_url.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                          </a>
+                        </div>
+                      )}
+                      {org.twitter_handle && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Icon name="xLogo" size="s" className="text-[var(--ui-muted)]" />
+                          <span className="text-[var(--ui-text)]">@{org.twitter_handle}</span>
+                        </div>
+                      )}
+                      {org.ens_name && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Icon name="ethereum" size="s" className="text-[var(--ui-muted)]" />
+                          <span className="text-[var(--ui-text)]">{org.ens_name}</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-3 pt-2">
+                      <span className="text-xs text-[var(--ui-muted)]">Wallet:</span>
+                      <code className="rounded bg-black/5 dark:bg-white/5 px-2 py-1 text-xs font-mono text-[var(--ui-text)]">
+                        {org.wallet.slice(0, 6)}...{org.wallet.slice(-4)}
+                      </code>
+                      {org.has_coinbase_verification && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ui-brand-green)]/10 px-2 py-1 text-xs font-medium text-[var(--ui-brand-green)]">
+                          <Icon name="circleCheckmark" size="xs" />
+                          Coinbase Verified
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Actions */}
+                  <div className="flex flex-col gap-2">
+                    <Button 
+                      variant="primary" 
+                      compact
+                      onClick={() => openApproveModal(org)}
+                    >
+                      Approve
+                    </Button>
+                    <Button 
+                      variant="secondary" 
+                      compact
+                      onClick={() => openRejectModal(org)}
+                    >
+                      Reject
+                    </Button>
+                    {org.linkedin_url && (
+                      <Button 
+                        as="a"
+                        href={org.linkedin_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        variant="secondary" 
+                        compact
+                        transparent
+                      >
+                        LinkedIn
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        )}
       </div>
+
+      {/* Approve Modal */}
+      <Modal
+        visible={showApproveModal}
+        onRequestClose={() => !isSubmitting && setShowApproveModal(false)}
+      >
+        <ModalHeader
+          title="Approve Organization"
+          closeAccessibilityLabel="Close"
+        />
+        <ModalBody>
+          <div className="space-y-4">
+            <p className="text-base text-[var(--ui-text)] leading-relaxed">
+              Are you sure you want to approve <strong>{selectedOrg?.name}</strong>?
+            </p>
+            <p className="text-sm text-[var(--ui-muted)] leading-relaxed">
+              This will grant them organization privileges and allow them to create campaigns.
+            </p>
+          </div>
+        </ModalBody>
+        <ModalFooter
+          primaryAction={
+            <Button onClick={handleApprove} disabled={isSubmitting}>
+              {isSubmitting ? "Approving..." : "Approve"}
+            </Button>
+          }
+          secondaryAction={
+            <Button
+              onClick={() => setShowApproveModal(false)}
+              variant="secondary"
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+          }
+        />
+      </Modal>
+
+      {/* Reject Modal */}
+      <Modal
+        visible={showRejectModal}
+        onRequestClose={() => !isSubmitting && setShowRejectModal(false)}
+      >
+        <ModalHeader
+          title="Reject Organization"
+          closeAccessibilityLabel="Close"
+        />
+        <ModalBody>
+          <div className="space-y-4">
+            <p className="text-base text-[var(--ui-text)] leading-relaxed">
+              Are you sure you want to reject <strong>{selectedOrg?.name}</strong>?
+            </p>
+            <TextInput
+              label="Reason for rejection (optional)"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Enter reason..."
+            />
+          </div>
+        </ModalBody>
+        <ModalFooter
+          primaryAction={
+            <Button onClick={handleReject} disabled={isSubmitting}>
+              {isSubmitting ? "Rejecting..." : "Reject"}
+            </Button>
+          }
+          secondaryAction={
+            <Button
+              onClick={() => setShowRejectModal(false)}
+              variant="secondary"
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+          }
+        />
+      </Modal>
     </div>
   );
 }

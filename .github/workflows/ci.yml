@@ -70,7 +70,6 @@ jobs:
       - name: Build frontend (Next.js)
         run: pnpm --filter frontend build
         env:
-          NEXT_PUBLIC_CHAIN_ID: "84532"
           NEXT_PUBLIC_RPC_URL: "https://sepolia.base.org"
           NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
           NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder"

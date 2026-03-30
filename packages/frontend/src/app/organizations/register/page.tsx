@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useAccount } from "wagmi";
-import { base } from "viem/chains";
-import { Address } from "viem";
+import { useState, useCallback } from "react";
+import { baseSepolia } from "viem/chains";
+import { Address, encodeFunctionData } from "viem";
 import { useName, useAttestations } from "@coinbase/onchainkit/identity";
-import { useSignMessage } from "wagmi";
+import { useAminiSigning } from "@/context/AminiSigningContext";
+import { CDPSmartButton } from "@/components/wallet/CDPSmartButton";
 import Link from "next/link";
 import { Button } from "@coinbase/cds-web/buttons";
 import { TextBody } from "@coinbase/cds-web/typography";
@@ -16,8 +16,12 @@ import { Spinner } from "@coinbase/cds-web/loaders";
 import { NativeTextArea } from "@coinbase/cds-web/controls";
 import { Icon } from "@coinbase/cds-web/icons";
 
+/** "AminiReg" in hex — the calldata marker the backend checks */
+const AMINI_REG_HEX = "0x416d696e69526567";
+
 export default function RegisterOrganizationPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, getCdpAccessToken } =
+    useAminiSigning();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -30,19 +34,17 @@ export default function RegisterOrganizationPage() {
   // Logo state
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const logoInputRef = useState<HTMLInputElement | null>(null);
 
   
   // On-chain identity
-  const { data: onchainName } = useName({ address: address as Address, chain: base });
-  const cbAttestations = useAttestations({ address: (address || "0x") as Address, chain: base, schemaId: "0xf8b05c79f090979bf4a80270aba232dff11a10d9ca55c4f88de95317970f0de9" });
+  const { data: onchainName } = useName({ address: address as Address, chain: baseSepolia });
+  const cbAttestations = useAttestations({ address: (address || "0x") as Address, chain: baseSepolia, schemaId: "0xf8b05c79f090979bf4a80270aba232dff11a10d9ca55c4f88de95317970f0de9" });
   const hasCoinbaseVerification = address ? cbAttestations && cbAttestations.length > 0 : false;
 
   const [submitting, setSubmitting] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "confirming" | "submitting">("idle");
   const [result, setResult] = useState<{ ok: boolean; message?: string; orgName?: string } | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
-
-  const { signMessageAsync } = useSignMessage();
 
   const canSubmit = isConnected && address && name.trim().length >= 3 && officialEmail.trim().length > 0 && officialEmail.includes("@") && !submitting;
 
@@ -77,43 +79,29 @@ export default function RegisterOrganizationPage() {
     setLogoError(null);
   }
 
+  // Build the zero-value transaction for CDPSmartButton
+  const registrationTx = address ? {
+    to: address, // self-transfer
+    value: "0",
+    data: AMINI_REG_HEX,
+  } : null;
 
-  async function handleSubmit() {
-    if (!canSubmit) return;
+  /**
+   * Called when CDPSmartButton confirms the transaction.
+   * Submits the registration form data + txHash to the backend.
+   */
+  const handleTxSuccess = useCallback(async (txHash: string) => {
+    if (!address || !name || !officialEmail) return;
 
-    if (!address || !name || !officialEmail) {
-      setResult({ ok: false, message: "Please fill out all required fields." });
-      return;
-    }
-    if (!officialEmail.includes("@")) {
-      setResult({ ok: false, message: "Please provide a valid official email address." });
-      return;
-    }
-
+    setPhase("submitting");
     setSubmitting(true);
-    setResult(null);
 
     try {
-      // 1. Get Signature
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const message = `Amini Verification\nAction: Register Organization\nWallet: ${address.toLowerCase()}\nTimestamp: ${timestamp}`;
-      
-      let signature: string;
-      try {
-        signature = await signMessageAsync({ message });
-      } catch (err) {
-        setResult({ ok: false, message: "Signature rejected. You must sign the request to register." });
-        setSubmitting(false);
-        return;
-      }
-
-      // 2. Prepare Form Data
       const formData = new FormData();
       formData.append("wallet", address);
       formData.append("name", name.trim());
       formData.append("officialEmail", officialEmail.trim());
-      formData.append("signature", signature);
-      formData.append("signatureTimestamp", timestamp);
+      formData.append("txHash", txHash);
       
       if (description.trim()) formData.append("description", description.trim());
       if (websiteUrl.trim()) formData.append("websiteUrl", websiteUrl.trim());
@@ -124,24 +112,45 @@ export default function RegisterOrganizationPage() {
       formData.append("hasCoinbaseVerification", String(hasCoinbaseVerification));
       if (logoFile) formData.append("logo", logoFile);
 
+      const cdpToken = await getCdpAccessToken();
+      if (cdpToken) formData.append("cdpAccessToken", cdpToken);
+
       const res = await fetch("/api/organizations", {
         method: "POST",
         body: formData,
       });
-
 
       const json = await res.json();
 
       if (json.ok) {
         setResult({ ok: true, orgName: name.trim() });
       } else {
-        setResult({ ok: false, message: json.message ?? "Registration failed." });
+        const errorMsg = res.status === 401 
+          ? `Identity verification failed: ${json.message}.`
+          : json.message ?? "Registration failed.";
+        setResult({ ok: false, message: errorMsg });
       }
     } catch (err) {
       setResult({ ok: false, message: (err as Error).message ?? "Network error." });
     } finally {
       setSubmitting(false);
+      setPhase("idle");
     }
+  }, [address, name, officialEmail, description, websiteUrl, twitterHandle, linkedinUrl, country, onchainName, hasCoinbaseVerification, logoFile, getCdpAccessToken]);
+
+  const handleTxError = useCallback((error: Error) => {
+    setSubmitting(false);
+    setPhase("idle");
+    setResult({ ok: false, message: `Transaction failed: ${error.message}. Please try again.` });
+  }, []);
+
+  /** Called when the user clicks the "Register" button to initiate */
+  function handleRegisterClick() {
+    if (!canSubmit) return;
+    setResult(null);
+    setPhase("confirming");
+    setSubmitting(true);
+    // The CDPSmartButton will handle the actual transaction
   }
 
   return (
@@ -443,24 +452,58 @@ export default function RegisterOrganizationPage() {
                 )}
 
                 {/* Submit */}
-                <Button
-                  variant="primary"
-                  className="campaign-btn-launch w-full [&>span]:flex [&>span]:items-center [&>span]:justify-center [&>span]:gap-2"
-                  onClick={handleSubmit}
-                  disabled={!canSubmit}
-                >
-                  {submitting ? (
-                    <>
-                      <Spinner size={2} accessibilityLabel="Submitting" />
-                      Registering...
-                    </>
-                  ) : (
-                    <>
-                      <span className="w-4 h-4 flex items-center justify-center"><Icon name="circleCheckmark" size="s" color="currentColor" /></span>
-                      Register Organization
-                    </>
-                  )}
-                </Button>
+                {phase === "idle" && (
+                  <Button
+                    variant="primary"
+                    className="campaign-btn-launch w-full [&>span]:flex [&>span]:items-center [&>span]:justify-center [&>span]:gap-2"
+                    onClick={handleRegisterClick}
+                    disabled={!canSubmit || submitting}
+                  >
+                    <span className="w-4 h-4 flex items-center justify-center"><Icon name="circleCheckmark" size="s" color="currentColor" /></span>
+                    Register Organization
+                  </Button>
+                )}
+
+                {phase === "confirming" && address && registrationTx && (
+                  <div className="space-y-3">
+                    <Banner
+                      variant="informational"
+                      startIcon="info"
+                      startIconActive
+                      styleVariant="contextual"
+                      borderRadius={400}
+                      title="Confirm your identity"
+                      style={{ padding: '0.75rem 1.25rem' }}
+                    >
+                      Approve a free, zero-cost transaction in your wallet to prove you own this address. No ETH will be spent.
+                    </Banner>
+                    <CDPSmartButton
+                      account={address}
+                      network="base-sepolia"
+                      transaction={registrationTx}
+                      chainId={baseSepolia.id}
+                      onSuccess={handleTxSuccess}
+                      onError={handleTxError}
+                      className="campaign-btn-launch w-full flex items-center justify-center gap-2 rounded-xl py-3 px-6 font-semibold text-base"
+                    >
+                      <Icon name="circleCheckmark" size="s" /> Confirm Identity Transaction
+                    </CDPSmartButton>
+                    <Button
+                      variant="secondary"
+                      className="campaign-btn-draft w-full"
+                      onClick={() => { setPhase("idle"); setSubmitting(false); }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+
+                {phase === "submitting" && (
+                  <div className="flex items-center justify-center gap-3 py-4">
+                    <Spinner size={3} accessibilityLabel="Registering" />
+                    <TextBody className="app-text font-medium">Registering organization...</TextBody>
+                  </div>
+                )}
               </div>
             )}
           </div>

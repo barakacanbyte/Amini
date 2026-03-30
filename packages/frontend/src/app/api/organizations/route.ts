@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 import { uploadBufferToIpfs, isFilebaseConfigured } from "@/lib/filebaseUpload";
-import { verifyAminiSignature } from "@/lib/auth";
+import { verifyAminiIdentity } from "@/lib/auth";
 
 /**
  * GET /api/organizations?wallet=<address>
@@ -80,8 +80,8 @@ export async function POST(req: Request) {
     const hasCoinbaseVerification = form.get("hasCoinbaseVerification") === "true";
     const signature = (form.get("signature") as string)?.trim();
     const signatureTimestamp = (form.get("signatureTimestamp") as string)?.trim();
-
-
+    const cdpAccessToken = (form.get("cdpAccessToken") as string)?.trim();
+    const txHash = (form.get("txHash") as string)?.trim();
 
     if (!wallet || !name) {
       return Response.json(
@@ -97,14 +97,23 @@ export async function POST(req: Request) {
       );
     }
 
-    // signature verification
-    if (!signature || !signatureTimestamp) {
-      return Response.json({ ok: false, message: "Blockchain signature is required to verify your identity." }, { status: 401 });
+    console.log("POST /api/organizations - Identity check:", {
+      wallet,
+      hasTxHash: Boolean(txHash),
+      hasSignature: Boolean(signature && signatureTimestamp),
+      hasCdpToken: Boolean(cdpAccessToken),
+    });
+    const idResult = await verifyAminiIdentity("Register Organization", wallet, {
+      cdpAccessToken,
+      signature,
+      signatureTimestamp,
+      txHash,
+    });
+    if (!idResult.ok) {
+      console.warn("POST /api/organizations - Identity verification failed:", idResult.message);
+      return Response.json({ ok: false, message: idResult.message }, { status: 401 });
     }
-    const sigResult = await verifyAminiSignature("Register Organization", wallet, signature, signatureTimestamp);
-    if (!sigResult.ok) {
-      return Response.json({ ok: false, message: sigResult.message }, { status: 401 });
-    }
+    console.log("POST /api/organizations - Identity verified successfully");
 
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -138,17 +147,28 @@ export async function POST(req: Request) {
       }
     }
 
-    // Ensure profile exists for the wallet
-    await fetch(`${supabaseUrl}/rest/v1/profiles`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: serviceRole,
-        Authorization: `Bearer ${serviceRole}`,
-        Prefer: "resolution=ignore-duplicates",
+    // Ensure profile exists for the wallet (FK on organizations.wallet → profiles.wallet)
+    const profileRes = await fetch(
+      `${supabaseUrl}/rest/v1/profiles?on_conflict=wallet`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: serviceRole,
+          Authorization: `Bearer ${serviceRole}`,
+          Prefer: "resolution=ignore-duplicates",
+        },
+        body: JSON.stringify({ wallet }),
       },
-      body: JSON.stringify({ wallet }),
-    });
+    );
+    if (!profileRes.ok) {
+      const text = await profileRes.text();
+      console.error("POST /api/organizations - profiles upsert failed:", profileRes.status, text);
+      return Response.json(
+        { ok: false, message: "Could not create profile for this wallet: " + text },
+        { status: 502 },
+      );
+    }
 
     // Handle Logo Upload
     let logoUrl: string | null = null;

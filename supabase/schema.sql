@@ -3,14 +3,13 @@
 -- Regenerate optionally: ./scripts/dump-supabase-schema.sh (requires SUPABASE_DB_URL or DATABASE_URL).
 
 -- === Types ===
-CREATE TYPE user_role AS ENUM ('donor', 'organization', 'admin');
+CREATE TYPE user_role AS ENUM ('guest', 'donor', 'organization', 'admin');
 CREATE TYPE org_status AS ENUM ('pending', 'approved', 'rejected');
 
 -- === Profiles & organizations (dashboards) ===
 CREATE TABLE public.profiles (
   wallet text PRIMARY KEY,
-  role user_role NOT NULL DEFAULT 'donor',
-  roles text[] DEFAULT ARRAY['donor'::text],
+  roles text[] DEFAULT ARRAY['guest'::text],
   name text,
   email text,
   avatar_url text,
@@ -142,7 +141,6 @@ CREATE TABLE public.reputation_scores (
   last_updated timestamptz DEFAULT now()
 );
 
-CREATE INDEX idx_profiles_role ON public.profiles(role);
 CREATE INDEX idx_profiles_roles ON public.profiles USING GIN(roles);
 CREATE INDEX idx_organizations_wallet ON public.organizations(wallet);
 CREATE INDEX idx_organizations_status ON public.organizations(status);

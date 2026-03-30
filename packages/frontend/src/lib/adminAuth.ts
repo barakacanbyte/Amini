@@ -15,7 +15,7 @@ export async function verifyAdminAccess(wallet: string): Promise<{ ok: boolean; 
 
   try {
     const res = await fetch(
-      `${supabaseUrl}/rest/v1/profiles?wallet=eq.${wallet.toLowerCase()}&select=wallet,role,roles&limit=1`,
+      `${supabaseUrl}/rest/v1/profiles?wallet=eq.${wallet.toLowerCase()}&select=wallet,roles&limit=1`,
       {
         headers: {
           apikey: serviceRole,
@@ -28,14 +28,14 @@ export async function verifyAdminAccess(wallet: string): Promise<{ ok: boolean; 
       return { ok: false, message: "Failed to verify admin access." };
     }
 
-    const profiles = await res.json() as Array<{ wallet: string; role?: string; roles?: string[] }>;
+    const profiles = await res.json() as Array<{ wallet: string; roles?: string[] }>;
 
     if (profiles.length === 0) {
       return { ok: false, message: "Profile not found." };
     }
 
     const profile = profiles[0];
-    const hasAdminRole = profile.roles?.includes('admin') || profile.role === 'admin';
+    const hasAdminRole = profile.roles?.includes('admin') || false;
 
     if (!hasAdminRole) {
       return { ok: false, message: "Access denied. Admin role required." };

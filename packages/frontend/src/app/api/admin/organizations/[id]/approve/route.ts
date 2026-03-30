@@ -60,14 +60,14 @@ export async function POST(
     if (orgData && orgData.wallet) {
       // Fetch current profile to get existing roles
       const profileRes = await fetch(
-        `${supabaseUrl}/rest/v1/profiles?wallet=eq.${orgData.wallet}&select=roles,role`,
+        `${supabaseUrl}/rest/v1/profiles?wallet=eq.${orgData.wallet}&select=roles`,
         { headers }
       );
       
       if (profileRes.ok) {
-        const profiles = await profileRes.json() as Array<{ roles?: string[]; role?: string }>;
+        const profiles = await profileRes.json() as Array<{ roles?: string[] }>;
         if (profiles.length > 0) {
-          const currentRoles = profiles[0].roles || (profiles[0].role ? [profiles[0].role] : ['donor']);
+          const currentRoles = profiles[0].roles || ['donor'];
           const updatedRoles = currentRoles.includes('organization') 
             ? currentRoles 
             : [...currentRoles, 'organization'];
@@ -79,7 +79,6 @@ export async function POST(
               headers,
               body: JSON.stringify({
                 roles: updatedRoles,
-                role: "organization",
                 updated_at: new Date().toISOString(),
               }),
             }

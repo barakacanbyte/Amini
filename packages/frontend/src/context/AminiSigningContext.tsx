@@ -65,7 +65,7 @@ export function AminiSigningProviderCdp({ children }: { children: ReactNode }) {
       );
       if (eoa?.address) {
         const result = await signEvmMessage({
-          evmAccount: eoa.address,
+          evmAccount: eoa.address as `0x${string}`,
           message,
         });
         return result.signature;

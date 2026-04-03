@@ -271,7 +271,7 @@ export default function AdminOrganizationsPage() {
                         </span>
                         {org.has_coinbase_verification && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ui-brand-green)]/10 px-2 py-0.5 text-xs font-medium text-[var(--ui-brand-green)]">
-                            <Icon name="checkCircle" size="xs" />
+                            <Icon name="circleCheckmark" size="xs" />
                             CB Verified
                           </span>
                         )}
@@ -327,7 +327,7 @@ export default function AdminOrganizationsPage() {
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 text-[var(--ui-brand-green)] hover:underline"
                       >
-                        <Icon name="link" size="xs" />
+                        <Icon name="externalLink" size="xs" />
                         Website
                       </a>
                     )}

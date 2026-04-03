@@ -16,7 +16,7 @@ async function loadCampaigns(): Promise<CampaignRow[] | null> {
 
   const endpoint =
     `${url}/rest/v1/campaigns?select=id,owner,beneficiary,target_amount,milestone_count,metadata_uri,created_at` +
-    `&order=id.desc&limit=100`;
+    `&is_fully_created=eq.true&order=id.desc&limit=100`;
 
   const res = await fetch(endpoint, {
     headers: {

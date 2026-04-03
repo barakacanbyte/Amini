@@ -24,7 +24,7 @@ type CampaignPayload = {
   contactEmail?: string;
   beneficiaryDescription?: string;
   socialLinks?: Array<{ label: string; url: string }>;
-  impactMetrics?: Array<{ name: string; target: string }>;
+  impactMetrics?: Array<{ name: string; target: string; timeframe?: string }>;
   milestoneData?: Array<{ title: string; description?: string; amount: string }>;
   organizationId?: string;
   signature?: string;
@@ -69,6 +69,12 @@ export async function POST(req: Request) {
       );
     }
 
+    const restHeaders: Record<string, string> = {
+      "Content-Type": "application/json",
+      apikey: serviceRole,
+      Authorization: "Bearer " + serviceRole,
+    };
+
     const row: Record<string, unknown> = {
       id: payload.campaignId,
       chain_id: payload.chainId,
@@ -80,6 +86,8 @@ export async function POST(req: Request) {
       created_tx_hash: payload.txHash || null,
       created_block: payload.blockNumber ?? null,
       status: "active",
+      is_fully_created: true,
+      draft_payload: null,
     };
 
     if (payload.title) row.title = payload.title;
@@ -91,27 +99,61 @@ export async function POST(req: Request) {
     if (payload.contactEmail) row.contact_email = payload.contactEmail;
     if (payload.beneficiaryDescription) row.beneficiary_description = payload.beneficiaryDescription;
     if (payload.socialLinks?.length) row.social_links = payload.socialLinks;
-    if (payload.impactMetrics?.length) row.impact_metrics = payload.impactMetrics;
+    if (payload.impactMetrics?.length) {
+      const impactMetrics = payload.impactMetrics.filter(
+        (m) => (m.name?.trim() ?? "") || (m.target?.trim() ?? ""),
+      );
+      if (impactMetrics.length) row.impact_metrics = impactMetrics;
+    }
     if (payload.milestoneData?.length) row.milestone_data = payload.milestoneData;
     if (payload.organizationId) row.organization_id = payload.organizationId;
 
-    const dbRes = await fetch(
-      supabaseUrl + "/rest/v1/campaigns",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: serviceRole,
-          Authorization: "Bearer " + serviceRole,
-          Prefer: "return=representation",
-        },
-        body: JSON.stringify(row),
-      },
+    const ownerLc = payload.owner.toLowerCase();
+    const findDraftRes = await fetch(
+      `${supabaseUrl}/rest/v1/campaigns?owner=eq.${encodeURIComponent(ownerLc)}&is_fully_created=eq.false&select=id&limit=1`,
+      { headers: { apikey: serviceRole, Authorization: "Bearer " + serviceRole } },
     );
+    if (!findDraftRes.ok) {
+      const text = await findDraftRes.text();
+      return err("Supabase draft lookup failed: " + text, 502);
+    }
+    const draftRows = (await findDraftRes.json()) as Array<{ id: number }>;
+
+    let dbRes: Response;
+
+    if (draftRows.length > 0) {
+      const draftId = draftRows[0].id;
+      dbRes = await fetch(`${supabaseUrl}/rest/v1/campaigns?id=eq.${draftId}`, {
+        method: "PATCH",
+        headers: { ...restHeaders, Prefer: "return=representation" },
+        body: JSON.stringify(row),
+      });
+      if (!dbRes.ok) {
+        const delRes = await fetch(`${supabaseUrl}/rest/v1/campaigns?id=eq.${draftId}`, {
+          method: "DELETE",
+          headers: restHeaders,
+        });
+        if (!delRes.ok) {
+          const text = await dbRes.text();
+          return err("Supabase patch failed and draft delete failed: " + text, 502);
+        }
+        dbRes = await fetch(supabaseUrl + "/rest/v1/campaigns", {
+          method: "POST",
+          headers: { ...restHeaders, Prefer: "return=representation" },
+          body: JSON.stringify(row),
+        });
+      }
+    } else {
+      dbRes = await fetch(supabaseUrl + "/rest/v1/campaigns", {
+        method: "POST",
+        headers: { ...restHeaders, Prefer: "return=representation" },
+        body: JSON.stringify(row),
+      });
+    }
 
     if (!dbRes.ok) {
       const text = await dbRes.text();
-      return err("Supabase insert failed: " + text, 502);
+      return err("Supabase write failed: " + text, 502);
     }
 
     const inserted = await dbRes.json();

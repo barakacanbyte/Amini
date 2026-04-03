@@ -2,9 +2,10 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
+import { useSendUserOperation, useWaitForUserOperation, useCurrentUser } from "@coinbase/cdp-hooks";
 import { useAminiSigning } from "@/context/AminiSigningContext";
-import { decodeEventLog } from "viem";
+import { encodeFunctionData, decodeEventLog, TransactionReceiptNotFoundError } from "viem";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { TextBody } from "@coinbase/cds-web/typography/TextBody";
 import { TextLabel1 } from "@coinbase/cds-web/typography/TextLabel1";
@@ -15,19 +16,20 @@ import { TextCaption } from "@coinbase/cds-web/typography/TextCaption";
 import { Tag } from "@coinbase/cds-web/tag/Tag";
 import { Banner } from "@coinbase/cds-web/banner/Banner";
 import { Spinner } from "@coinbase/cds-web/loaders/Spinner";
-import { ProgressBar } from "@coinbase/cds-web/visualizations/ProgressBar";
 import { Icon } from "@coinbase/cds-web/icons";
-import { config, campaignRegistryAbi, milestoneEscrowAbi, parseUsdc } from "@/lib/contracts";
+import {
+  config,
+  campaignRegistryAbi,
+  milestoneEscrowAbi,
+  formatUsdc,
+  tryParseUsdc,
+} from "@/lib/contracts";
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const DRAFT_KEY = "amini_campaign_draft";
-
 const EMPTY_MILESTONE = { title: "", description: "", amount: "" };
-
-
 
 const CAUSE_OPTIONS = [
   { value: "forest", label: "Reforestation" },
@@ -40,6 +42,16 @@ const CAUSE_OPTIONS = [
   { value: "climate", label: "Climate action" },
 ];
 
+/** Karma GAP–style horizon labels for expected outcomes (stored on each metric row). */
+const METRIC_TIMEFRAME_OPTIONS = [
+  { value: "", label: "Time horizon (optional)" },
+  { value: "0-3 months", label: "Near-term (0–3 mo)" },
+  { value: "3-12 months", label: "Mid-term (3–12 mo)" },
+  { value: "12+ months", label: "Long-term (12+ mo)" },
+] as const;
+
+const EMPTY_IMPACT_METRIC = { name: "", target: "", timeframe: "" };
+
 const VALIDATORS = [
   { value: "", label: "Select Validator" },
   { value: "eas", label: "EAS Attestation Service" },
@@ -49,9 +61,10 @@ const VALIDATORS = [
 
 const STEPS = [
   { key: 1, label: "Details" },
-  { key: 2, label: "Funding" },
-  { key: 3, label: "Verification" },
-  { key: 4, label: "Review" },
+  { key: 2, label: "Budget & milestones" },
+  { key: 3, label: "Outcomes" },
+  { key: 4, label: "Verification" },
+  { key: 5, label: "Review" },
 ] as const;
 
 type SubmitStep = "idle" | "uploading" | "creating" | "signing" | "saving" | "done" | "error";
@@ -60,13 +73,21 @@ type SubmitStep = "idle" | "uploading" | "creating" | "signing" | "saving" | "do
 /* Draft helpers                                                      */
 /* ------------------------------------------------------------------ */
 
+/** Legacy local-only draft key (migrated to Supabase once on load when session allows). */
+const LEGACY_DRAFT_KEY = "amini_campaign_draft";
+
+/** Max length for optional cover `data:` URL stored inside draft JSON (Supabase row size). */
+const MAX_DRAFT_IMAGE_DATA_URL_CHARS = 400_000;
+
+type ImpactMetricRow = { name: string; target: string; timeframe?: string };
+
 type DraftData = {
   title: string;
   description: string;
   beneficiaryDescription: string;
   contactEmail: string;
   socialLinks: { label: string; url: string }[];
-  impactMetrics: { name: string; target: string }[];
+  impactMetrics: ImpactMetricRow[];
   targetAmount: string;
   deadline: string;
   region: string;
@@ -79,27 +100,22 @@ type DraftData = {
   currentStep: number;
 };
 
-function saveDraft(data: DraftData) {
-  try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...data, savedAt: new Date().toISOString() }));
-  } catch {
-    /* quota exceeded — silently ignore */
-  }
-}
+/** Payload merged into a `campaigns` row with `is_fully_created = false`. */
+type DraftPayload = DraftData & { imagePreview?: string | null };
 
-function loadDraft(): DraftData | null {
+function loadLegacyDraft(): (DraftPayload & { savedAt?: string }) | null {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const raw = localStorage.getItem(LEGACY_DRAFT_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as DraftData;
+    return JSON.parse(raw) as DraftPayload & { savedAt?: string };
   } catch {
     return null;
   }
 }
 
-function clearDraft() {
+function clearLegacyDraft() {
   try {
-    localStorage.removeItem(DRAFT_KEY);
+    localStorage.removeItem(LEGACY_DRAFT_KEY);
   } catch {
     /* ignore */
   }
@@ -123,7 +139,7 @@ export default function CreateCampaignPage() {
   const [beneficiaryDescription, setBeneficiaryDescription] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [socialLinks, setSocialLinks] = useState<{ label: string; url: string }[]>([]);
-  const [impactMetrics, setImpactMetrics] = useState<{ name: string; target: string }[]>([]);
+  const [impactMetrics, setImpactMetrics] = useState<ImpactMetricRow[]>([]);
   const [targetAmount, setTargetAmount] = useState("");
   const [deadline, setDeadline] = useState("");
   const [region, setRegion] = useState("");
@@ -152,9 +168,34 @@ export default function CreateCampaignPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [savedToDb, setSavedToDb] = useState(false);
   const [showDraftToast, setShowDraftToast] = useState(false);
+  const [pendingUserOperationHash, setPendingUserOperationHash] = useState<`0x${string}` | null>(null);
 
   /* ---- Contract interaction ---- */
-  const { writeContract: writeRegistry, data: txCreate, isPending: isPendingCreate } = useWriteContract();
+  const publicClient = usePublicClient();
+  const { currentUser } = useCurrentUser();
+  const smartAccount = currentUser?.evmSmartAccounts?.[0];
+  const isSmartWallet = !!(smartAccount && address && address.toLowerCase() === smartAccount.toLowerCase());
+  
+  // CDP smart account hook for user operations
+  const { 
+    sendUserOperation, 
+    error: cdpTxError 
+  } = useSendUserOperation();
+  const { data: cdpUserOperation, error: cdpUserOperationError } = useWaitForUserOperation({
+    userOperationHash: pendingUserOperationHash ?? undefined,
+    evmSmartAccount: smartAccount as `0x${string}` | undefined,
+    network: "base-sepolia",
+    enabled: Boolean(pendingUserOperationHash && isSmartWallet && submitStep === "creating"),
+  });
+  const cdpTransactionHash =
+    cdpUserOperation?.transactionHash ||
+    cdpUserOperation?.receipts?.find((receipt) => receipt.transactionHash)?.transactionHash;
+  const hasCanonicalCdpTransactionHash = Boolean(
+    cdpTransactionHash && /^0x[a-fA-F0-9]{64}$/.test(cdpTransactionHash),
+  );
+  
+  // Wagmi hooks for EOA fallback
+  const { writeContract: writeRegistry, data: txCreate, isPending: isPendingCreate, error: txCreateError } = useWriteContract();
   const { data: receiptCreate, isLoading: isConfirmingCreate } = useWaitForTransactionReceipt({ hash: txCreate });
   const { writeContract: writeEscrow, data: txInit, isPending: isPendingInit } = useWriteContract();
   const { isLoading: isConfirmingInit, data: receiptInit } = useWaitForTransactionReceipt({ hash: txInit });
@@ -162,29 +203,132 @@ export default function CreateCampaignPage() {
   const registryAddress = config.campaignRegistry;
   const escrowAddress = config.escrow;
 
-  /* ---- Restore draft on mount ---- */
-  useEffect(() => {
-    const draft = loadDraft();
-    if (draft) {
-      setTitle(draft.title || "");
-      setDescription(draft.description || "");
-      setBeneficiaryDescription(draft.beneficiaryDescription || "");
-      setContactEmail(draft.contactEmail || "");
-      setSocialLinks(draft.socialLinks?.length ? draft.socialLinks : []);
-      setImpactMetrics(draft.impactMetrics?.length ? draft.impactMetrics : []);
-      setTargetAmount(draft.targetAmount || "");
-      setDeadline(draft.deadline || "");
-      setRegion(draft.region || "");
-      setStateLoc(draft.stateLoc || "");
-      setTags(draft.tags?.length ? draft.tags : []);
-      setMilestones(draft.milestones?.length ? draft.milestones : [{ ...EMPTY_MILESTONE }]);
-      setAttestationService(draft.attestationService || "");
-      setSuperfluidEnabled(draft.superfluidEnabled ?? false);
-      setPermanentStorage(draft.permanentStorage ?? true);
-      setCurrentStep(draft.currentStep || 1);
-      setDraftRestored(true);
+  const applyServerDraft = useCallback((draft: Partial<DraftPayload>) => {
+    if (typeof draft.title === "string") setTitle(draft.title);
+    if (typeof draft.description === "string") setDescription(draft.description);
+    if (typeof draft.beneficiaryDescription === "string") setBeneficiaryDescription(draft.beneficiaryDescription);
+    if (typeof draft.contactEmail === "string") setContactEmail(draft.contactEmail);
+    if (Array.isArray(draft.socialLinks)) setSocialLinks(draft.socialLinks);
+    if (Array.isArray(draft.impactMetrics)) {
+      setImpactMetrics(
+        draft.impactMetrics.map((m) => ({
+          name: typeof m?.name === "string" ? m.name : "",
+          target: typeof m?.target === "string" ? m.target : "",
+          timeframe: typeof m?.timeframe === "string" ? m.timeframe : "",
+        })),
+      );
+    }
+    if (typeof draft.targetAmount === "string") setTargetAmount(draft.targetAmount);
+    if (typeof draft.deadline === "string") setDeadline(draft.deadline);
+    if (typeof draft.region === "string") setRegion(draft.region);
+    if (typeof draft.stateLoc === "string") setStateLoc(draft.stateLoc);
+    if (Array.isArray(draft.tags)) setTags(draft.tags);
+    if (Array.isArray(draft.milestones) && draft.milestones.length > 0) {
+      setMilestones(draft.milestones);
+    }
+    if (typeof draft.attestationService === "string") setAttestationService(draft.attestationService);
+    if (typeof draft.superfluidEnabled === "boolean") setSuperfluidEnabled(draft.superfluidEnabled);
+    if (typeof draft.permanentStorage === "boolean") setPermanentStorage(draft.permanentStorage);
+    if (
+      typeof draft.currentStep === "number" &&
+      draft.currentStep >= 1 &&
+      draft.currentStep <= 5
+    ) {
+      setCurrentStep(draft.currentStep);
+    }
+    if (typeof draft.imagePreview === "string" && draft.imagePreview.length > 0) {
+      setImagePreview(draft.imagePreview);
+      setImageFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } else if (draft.imagePreview === null) {
+      setImagePreview(null);
+      setImageFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }, []);
+
+  /* ---- Restore draft: Supabase (primary) + one-time legacy localStorage migration ---- */
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const token = await getCdpAccessToken();
+        const res = await fetch("/api/campaigns/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "get",
+            wallet: address.toLowerCase(),
+            cdpAccessToken: token ?? undefined,
+          }),
+        });
+        const json = (await res.json()) as {
+          ok: boolean;
+          draft?: Partial<DraftPayload> | null;
+          message?: string;
+        };
+        if (cancelled) return;
+
+        if (
+          json.ok &&
+          json.draft &&
+          typeof json.draft === "object" &&
+          Object.keys(json.draft).length > 0
+        ) {
+          applyServerDraft(json.draft);
+          setDraftRestored(true);
+          clearLegacyDraft();
+          return;
+        }
+
+        const legacy = loadLegacyDraft();
+        if (!legacy) return;
+
+        const { savedAt: _savedAt, ...rest } = legacy;
+        applyServerDraft(rest);
+        setDraftRestored(true);
+
+        if (token) {
+          let preview = rest.imagePreview ?? null;
+          if (preview && preview.length > MAX_DRAFT_IMAGE_DATA_URL_CHARS) {
+            preview = null;
+          }
+          const migrateBody = {
+            ...rest,
+            imagePreview: preview,
+          };
+          const saveRes = await fetch("/api/campaigns/draft", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "save",
+              wallet: address.toLowerCase(),
+              organizationId: orgId ?? undefined,
+              draft: migrateBody,
+              cdpAccessToken: token,
+            }),
+          });
+          const saveJson = (await saveRes.json()) as { ok: boolean };
+          if (saveJson.ok) clearLegacyDraft();
+        }
+      } catch (e) {
+        console.warn("[Campaign Create] Draft load failed:", e);
+        if (cancelled) return;
+        const legacy = loadLegacyDraft();
+        if (legacy) {
+          const { savedAt: _savedAt, ...rest } = legacy;
+          applyServerDraft(rest);
+          setDraftRestored(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [address, getCdpAccessToken, applyServerDraft]);
 
   /* ---- Organization gate: check if wallet is a verified org ---- */
   useEffect(() => {
@@ -216,11 +360,81 @@ export default function CreateCampaignPage() {
     targetAmount, deadline, region, stateLoc, tags,
     milestones, attestationService, superfluidEnabled, permanentStorage, currentStep]);
 
+  const buildDraftPayload = useCallback(
+    (override: Partial<DraftPayload> = {}): DraftPayload => {
+      const base: DraftPayload = {
+        ...getDraftData(),
+        imagePreview:
+          override.imagePreview !== undefined ? override.imagePreview : imagePreview,
+      };
+      let preview = base.imagePreview ?? null;
+      if (preview && preview.length > MAX_DRAFT_IMAGE_DATA_URL_CHARS) {
+        preview = null;
+      }
+      return { ...base, ...override, imagePreview: preview };
+    },
+    [getDraftData, imagePreview],
+  );
+
+  const persistDraftToServer = useCallback(
+    async (draft: DraftPayload): Promise<{ ok: boolean; message?: string }> => {
+      if (!address) {
+        return { ok: false, message: "Connect your wallet to save a draft." };
+      }
+      try {
+        const token = await getCdpAccessToken();
+        const res = await fetch("/api/campaigns/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "save",
+            wallet: address.toLowerCase(),
+            organizationId: orgId ?? undefined,
+            draft,
+            cdpAccessToken: token ?? undefined,
+          }),
+        });
+        const json = (await res.json()) as { ok: boolean; message?: string };
+        if (json.ok) clearLegacyDraft();
+        return json;
+      } catch (e) {
+        return { ok: false, message: (e as Error).message };
+      }
+    },
+    [address, orgId, getCdpAccessToken],
+  );
+
+  const deleteDraftOnServer = useCallback(async (): Promise<void> => {
+    if (!address) return;
+    try {
+      const token = await getCdpAccessToken();
+      await fetch("/api/campaigns/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete",
+          wallet: address.toLowerCase(),
+          cdpAccessToken: token ?? undefined,
+        }),
+      });
+    } catch {
+      /* ignore */
+    }
+  }, [address, getCdpAccessToken]);
+
+  const purgeDraftStorage = useCallback(async () => {
+    clearLegacyDraft();
+    await deleteDraftOnServer();
+  }, [deleteDraftOnServer]);
+
   /* ---- Save draft handler ---- */
-  function handleSaveDraft() {
-    saveDraft(getDraftData());
+  async function handleSaveDraft() {
+    const result = await persistDraftToServer(buildDraftPayload());
     setShowDraftToast(true);
     setTimeout(() => setShowDraftToast(false), 2500);
+    if (!result.ok) {
+      console.warn("[Campaign Create] Draft save failed:", result.message);
+    }
   }
 
   /* ---- Extract campaign ID from receipt ---- */
@@ -243,33 +457,73 @@ export default function CreateCampaignPage() {
     return undefined;
   }, [receiptCreate]);
 
-  async function handleSignAndSave() {
-    if (createdCampaignId === undefined || !receiptCreate || !address) return;
+  function extractCampaignIdFromReceipt(receipt: any) {
+    if (!receipt.logs?.length) return undefined;
+    for (const log of receipt.logs) {
+      try {
+        const d = decodeEventLog({
+          abi: campaignRegistryAbi,
+          data: log.data,
+          topics: log.topics,
+        });
+        if (d.eventName === "CampaignCreated") {
+          return Number((d.args as unknown as { campaignId: bigint }).campaignId);
+        }
+      } catch {
+        continue;
+      }
+    }
+    return undefined;
+  }
+
+  async function saveCampaignToDb(
+    campaignId: number,
+    receipt: { transactionHash: string; blockNumber?: bigint | number },
+    ownerAddress: string,
+  ) {
     setSubmitStep("saving");
 
     try {
       const cdpToken = await getCdpAccessToken();
-      
+
+      console.log("[Campaign Create] Saving to DB:", {
+        campaignId,
+        hasCdpToken: !!cdpToken,
+        owner: ownerAddress.toLowerCase(),
+      });
+
+      const targetWeiForDb = tryParseUsdc(targetAmount);
+      /* step2Valid / canSubmit already enforced a parseable target */
+      if (targetWeiForDb === null) {
+        throw new Error("Invalid campaign budget for database save.");
+      }
+
+      const regionForDb = stateLoc.trim()
+        ? `${region.trim()}, ${stateLoc.trim()}`
+        : region.trim();
+
       const payload: Record<string, unknown> = {
-        campaignId: createdCampaignId,
+        campaignId,
         chainId: config.chainId,
-        owner: address.toLowerCase(),
-        beneficiary: address.toLowerCase(),
-        targetAmount: parseUsdc(targetAmount).toString(),
+        owner: ownerAddress.toLowerCase(),
+        beneficiary: ownerAddress.toLowerCase(),
+        targetAmount: targetWeiForDb.toString(),
         milestoneCount: milestones.length,
         metadataUri,
-        txHash: txCreate,
-        blockNumber: Number(receiptCreate.blockNumber),
+        txHash: receipt.transactionHash,
+        blockNumber: Number(receipt.blockNumber ?? 0),
         title,
         description,
         imageUrl,
-        region: region || undefined,
+        region: regionForDb || undefined,
         tags: tags.length ? tags : undefined,
         deadline: deadline || undefined,
         contactEmail: contactEmail || undefined,
         beneficiaryDescription: beneficiaryDescription || undefined,
         socialLinks: socialLinks.length ? socialLinks : undefined,
-        impactMetrics: impactMetrics.length ? impactMetrics : undefined,
+        impactMetrics: impactMetrics.some((m) => m.name.trim() || m.target.trim())
+          ? impactMetrics.filter((m) => m.name.trim() || m.target.trim())
+          : undefined,
         milestoneData: milestones,
         organizationId: orgId || undefined,
       };
@@ -282,51 +536,239 @@ export default function CreateCampaignPage() {
       });
 
       const json = await res.json();
-      setSavedToDb(json.ok);
+
+      console.log("[Campaign Create] DB save response:", { ok: json.ok, status: res.status });
+
+      if (!json.ok) {
+        setErrorMsg(json.message || "Failed to save campaign to database.");
+        setSavedToDb(false);
+      } else {
+        setSavedToDb(true);
+        await purgeDraftStorage();
+      }
       setSubmitStep("done");
-      clearDraft();
     } catch (err) {
-      console.error(err);
+      console.error("[Campaign Create] saveCampaignToDb error:", err);
+      setErrorMsg((err as Error).message || "Failed to save campaign.");
       setSavedToDb(false);
-      setSubmitStep("done");
+      setSubmitStep("error");
     }
   }
 
+  async function saveCampaignFromReceipt(receipt: any, ownerAddress: string) {
+    const campaignId = extractCampaignIdFromReceipt(receipt);
+    if (campaignId === undefined) {
+      setErrorMsg("Transaction confirmed but could not extract campaign ID.");
+      setSubmitStep("error");
+      return;
+    }
+
+    await saveCampaignToDb(campaignId, receipt, ownerAddress);
+  }
+
+  /* ---- CDP Transaction success handler ---- */
+  useEffect(() => {
+    if (cdpTxError) {
+      console.error("[Campaign Create] CDP transaction error:", cdpTxError);
+      setErrorMsg(cdpTxError.message || "Transaction failed");
+      setSubmitStep("error");
+    }
+  }, [cdpTxError, submitStep]);
+
+  useEffect(() => {
+    if (!pendingUserOperationHash || !cdpUserOperation || submitStep !== "creating") return;
+    if (cdpUserOperationError) {
+      setErrorMsg(cdpUserOperationError.message || "Failed to confirm user operation.");
+      setSubmitStep("error");
+      return;
+    }
+    if (cdpUserOperation.status !== "complete") return;
+
+    const transactionHash = cdpTransactionHash;
+    if (!transactionHash || !publicClient || !address) return;
+
+    // CDP may briefly expose a non-final hash-like value. Only query viem with a canonical tx hash.
+    if (!hasCanonicalCdpTransactionHash) {
+      console.warn("[Campaign Create] Ignoring invalid transaction hash from CDP user operation:", transactionHash);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // Poll for the receipt for up to ~45s, since some RPCs index CDP-bundled
+        // user operations a bit later even though the dashboard already shows them.
+        const maxAttempts = 15;
+        const delayMs = 3_000;
+        let attempt = 0;
+        let receipt = null as Awaited<ReturnType<typeof publicClient.getTransactionReceipt>> | null;
+
+        while (!cancelled && attempt < maxAttempts) {
+          attempt += 1;
+          try {
+            receipt = await publicClient.getTransactionReceipt({
+              hash: transactionHash as `0x${string}`,
+            });
+            break;
+          } catch (err) {
+            // For viem `TransactionReceiptNotFoundError` keep polling instead of failing the flow.
+            if (err instanceof TransactionReceiptNotFoundError) {
+              console.warn(
+                "[Campaign Create] Receipt not found yet, retrying...",
+                { attempt, transactionHash },
+              );
+              await new Promise((res) => setTimeout(res, delayMs));
+              continue;
+            }
+            throw err;
+          }
+        }
+
+        if (cancelled || !receipt) {
+          console.error("[Campaign Create] Gave up polling for transaction receipt.", {
+            transactionHash,
+          });
+          setErrorMsg(
+            "Transaction was sent, but the receipt is still propagating. Please check BaseScan and try again in a moment.",
+          );
+          setSubmitStep("error");
+          return;
+        }
+
+        if (receipt.status !== "success") {
+          setErrorMsg("Transaction failed on-chain.");
+          setSubmitStep("error");
+          return;
+        }
+
+        await saveCampaignFromReceipt(receipt, address);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("[Campaign Create] Failed to fetch transaction receipt:", err);
+        setErrorMsg("Transaction confirmed but the receipt could not be loaded.");
+        setSubmitStep("error");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    pendingUserOperationHash,
+    cdpUserOperation,
+    cdpUserOperationError,
+    submitStep,
+    publicClient,
+    address,
+    cdpTransactionHash,
+    hasCanonicalCdpTransactionHash,
+  ]);
+  useEffect(() => {
+    console.log("[Campaign Create] Transaction state:", {
+      txCreate,
+      receiptCreate: receiptCreate ? "present" : "undefined",
+      isConfirmingCreate,
+      isPendingCreate,
+      txCreateError: txCreateError?.message,
+      createdCampaignId,
+      submitStep,
+    });
+    if (createdCampaignId !== undefined && submitStep === "creating" && receiptCreate && address) {
+      void saveCampaignToDb(createdCampaignId, receiptCreate, address);
+    }
+  }, [createdCampaignId, submitStep, receiptCreate, isConfirmingCreate, isPendingCreate, txCreate, txCreateError, address]);
 
   /* ---- Derived validation per step ---- */
   const step1Valid = !!title.trim() && !!description.trim();
 
-  const milestonesValid = milestones.length > 0 && milestones.every((m) => m.amount && m.title);
-  const milestoneSum = useMemo(() => {
-    try {
-      return milestones.reduce(
-        (acc, m) => acc + (m.amount ? parseUsdc(m.amount) : BigInt(0)),
-        BigInt(0),
-      );
-    } catch {
-      return BigInt(0);
+  const milestonesComplete =
+    milestones.length > 0 &&
+    milestones.every(
+      (m) => m.title.trim().length > 0 && m.amount.trim().length > 0,
+    );
+
+  const targetParse = useMemo(() => {
+    if (!targetAmount.trim()) {
+      return { wei: BigInt(0), ok: false as const, empty: true as const };
     }
-  }, [milestones]);
-  const targetWei = useMemo(() => {
-    try {
-      return targetAmount ? parseUsdc(targetAmount) : BigInt(0);
-    } catch {
-      return BigInt(0);
+    const w = tryParseUsdc(targetAmount);
+    if (w === null || w <= BigInt(0)) {
+      return { wei: w ?? BigInt(0), ok: false as const, empty: false as const };
     }
+    return { wei: w, ok: true as const, empty: false as const };
   }, [targetAmount]);
-  const milestoneSumMatches = targetWei > BigInt(0) && milestoneSum === targetWei;
-  const step2Valid = !!targetAmount && milestonesValid && milestoneSumMatches && !!region.trim() && !!deadline;
+
+  const { milestoneSum, milestoneParseError } = useMemo(() => {
+    let sum = BigInt(0);
+    for (const m of milestones) {
+      if (!m.amount.trim()) continue;
+      const w = tryParseUsdc(m.amount);
+      if (w === null) {
+        return { milestoneSum: BigInt(0), milestoneParseError: true };
+      }
+      sum += w;
+    }
+    return { milestoneSum: sum, milestoneParseError: false };
+  }, [milestones]);
+
+  const targetWei = targetParse.wei;
+  const milestoneSumMatches =
+    targetParse.ok && !milestoneParseError && milestoneSum === targetWei;
+
+  /** Percent of campaign budget covered by milestone sums (null = show empty bar until budget is valid). */
+  const fundingBarRawPct = useMemo(() => {
+    if (milestoneParseError || milestoneSum <= BigInt(0)) return null;
+    if (!targetParse.ok || targetWei <= BigInt(0)) return null;
+    if (milestoneSum === targetWei) return 100;
+    const pct = (Number(milestoneSum) / Number(targetWei)) * 100;
+    if (!Number.isFinite(pct) || pct <= 0) return null;
+    return pct;
+  }, [milestoneParseError, milestoneSum, targetParse.ok, targetWei]);
+
+  /** Track fill width (capped); over-budget still uses 100% width + amber + label. */
+  const fundingBarWidthPct =
+    fundingBarRawPct == null ? 0 : Math.min(100, fundingBarRawPct);
+
+  const fundingBarOverTarget =
+    fundingBarRawPct != null && fundingBarRawPct > 100 + 1e-6;
+
+  const step2Valid =
+    targetParse.ok &&
+    !milestoneParseError &&
+    milestonesComplete &&
+    milestoneSumMatches &&
+    region.trim().length > 0 &&
+    deadline.trim().length > 0;
+
+  const fundingStatusOk =
+    milestoneSumMatches && milestonesComplete && !milestoneParseError;
+  const fundingNeedsAttention =
+    milestoneParseError ||
+    (Boolean(targetAmount.trim()) && !targetParse.ok && !targetParse.empty) ||
+    (targetParse.ok && !milestonesComplete) ||
+    (targetParse.ok && milestonesComplete && !milestoneSumMatches);
 
   const step3Valid = true;
 
   const canSubmit =
-    isConnected && address && registryAddress && escrowAddress &&
-    step1Valid && step2Valid && step3Valid && termsAccepted && orgStatus === "verified" && submitStep === "idle";
+    isConnected &&
+    address &&
+    registryAddress &&
+    escrowAddress &&
+    step1Valid &&
+    step2Valid &&
+    step3Valid &&
+    termsAccepted &&
+    orgStatus === "verified" &&
+    submitStep === "idle";
 
   /* ---- Navigation ---- */
   function goNext() {
-    saveDraft({ ...getDraftData(), currentStep: currentStep + 1 });
-    setCurrentStep((s) => Math.min(s + 1, 4));
+    void persistDraftToServer(
+      buildDraftPayload({ currentStep: currentStep + 1 }),
+    );
+    setCurrentStep((s) => Math.min(s + 1, 5));
   }
 
   function goBack() {
@@ -341,7 +783,8 @@ export default function CreateCampaignPage() {
     if (step <= 1) return true;
     if (step === 2) return step1Valid;
     if (step === 3) return step1Valid && step2Valid;
-    if (step === 4) return step1Valid && step2Valid && step3Valid;
+    if (step === 4) return step1Valid && step2Valid;
+    if (step === 5) return step1Valid && step2Valid && step3Valid;
     return false;
   }
 
@@ -383,11 +826,23 @@ export default function CreateCampaignPage() {
   const handleSubmit = useCallback(async () => {
     if (!canSubmit || !registryAddress || !escrowAddress) return;
 
-    const amounts = milestones.map((m) => parseUsdc(m.amount));
+    const target = tryParseUsdc(targetAmount);
+    if (target === null || target <= BigInt(0)) {
+      setErrorMsg("Enter a valid total budget (USDC).");
+      return;
+    }
+    const amounts: bigint[] = [];
+    for (const m of milestones) {
+      const w = tryParseUsdc(m.amount);
+      if (w === null) {
+        setErrorMsg("Each milestone needs a valid USDC amount.");
+        return;
+      }
+      amounts.push(w);
+    }
     const sum = amounts.reduce((a, b) => a + b, BigInt(0));
-    const target = parseUsdc(targetAmount);
     if (sum !== target) {
-      setErrorMsg("Milestone amounts must sum to the funding target.");
+      setErrorMsg("Milestone amounts must sum to your campaign budget.");
       return;
     }
 
@@ -413,7 +868,8 @@ export default function CreateCampaignPage() {
       if (beneficiaryDescription.trim()) form.append("beneficiaryDescription", beneficiaryDescription.trim());
       if (contactEmail.trim()) form.append("contactEmail", contactEmail.trim());
       if (socialLinks.length) form.append("socialLinks", JSON.stringify(socialLinks));
-      if (impactMetrics.length) form.append("impactMetrics", JSON.stringify(impactMetrics));
+      const metricsPayload = impactMetrics.filter((m) => m.name.trim() || m.target.trim());
+      if (metricsPayload.length) form.append("impactMetrics", JSON.stringify(metricsPayload));
       if (imageFile) form.append("image", imageFile);
 
       const metaRes = await fetch("/api/campaigns/metadata", { method: "POST", body: form });
@@ -435,24 +891,56 @@ export default function CreateCampaignPage() {
     setMetadataUri(uri);
     setImageUrl(imgUrl);
     setSubmitStep("creating");
+    setPendingUserOperationHash(null);
 
     try {
-      writeRegistry({
-        address: registryAddress,
-        abi: campaignRegistryAbi,
-        functionName: "createCampaign",
-        args: [address as `0x${string}`, target, milestones.length, uri],
-        chainId: config.chainId,
-      });
+      if (isSmartWallet && smartAccount) {
+        // Use CDP sendUserOperation for smart wallets
+        console.log("[Campaign Create] Using CDP sendUserOperation for smart wallet");
+        const callData = encodeFunctionData({
+          abi: campaignRegistryAbi,
+          functionName: "createCampaign",
+          args: [address as `0x${string}`, target, milestones.length, uri],
+        });
+        
+        // Explicitly use base-sepolia network
+        console.log("[Campaign Create] Sending to base-sepolia network");
+        
+        const result = await sendUserOperation({
+          evmSmartAccount: smartAccount,
+          network: "base-sepolia",
+          calls: [{
+            to: registryAddress as `0x${string}`,
+            data: callData,
+            value: 0n, // Use bigint instead of string
+          }],
+          useCdpPaymaster: true,
+        });
+        setPendingUserOperationHash(result.userOperationHash as `0x${string}`);
+      } else {
+        // Use wagmi for EOAs
+        console.log("[Campaign Create] Using wagmi writeContract for EOA");
+        writeRegistry({
+          address: registryAddress,
+          abi: campaignRegistryAbi,
+          functionName: "createCampaign",
+          args: [address as `0x${string}`, target, milestones.length, uri],
+        });
+      }
     } catch (err) {
       setErrorMsg("Failed to create campaign: " + (err as Error).message);
       setSubmitStep("error");
     }
-  }, [canSubmit, registryAddress, escrowAddress, address, title, description, targetAmount, milestones, region, stateLoc, tags, deadline, beneficiaryDescription, contactEmail, socialLinks, impactMetrics, imageFile, writeRegistry]);
+  }, [canSubmit, registryAddress, escrowAddress, address, title, description, targetAmount, milestones, region, stateLoc, tags, deadline, beneficiaryDescription, contactEmail, socialLinks, impactMetrics, imageFile, isSmartWallet, smartAccount, sendUserOperation, writeRegistry]);
 
   function handleInitEscrow() {
     if (!escrowAddress || createdCampaignId === undefined || !config.usdc) return;
-    const amounts = milestones.map((m) => parseUsdc(m.amount));
+    const amounts: bigint[] = [];
+    for (const m of milestones) {
+      const w = tryParseUsdc(m.amount);
+      if (w === null) return;
+      amounts.push(w);
+    }
     writeEscrow({
       address: escrowAddress,
       abi: milestoneEscrowAbi,
@@ -468,8 +956,9 @@ export default function CreateCampaignPage() {
     setMetadataUri(null);
     setImageUrl(null);
     setSavedToDb(false);
+    setPendingUserOperationHash(null);
     setCurrentStep(1);
-    clearDraft();
+    void purgeDraftStorage();
   }
 
   /* ---- Submit flow steps ---- */
@@ -530,7 +1019,7 @@ export default function CreateCampaignPage() {
                 style={{ padding: '0.75rem 1.25rem' }}
                 showDismiss
                 onClose={() => {
-                  clearDraft();
+                  void purgeDraftStorage();
                   setDraftRestored(false);
                   resetForm();
                   setTitle(""); setDescription(""); setBeneficiaryDescription(""); setContactEmail("");
@@ -741,7 +1230,7 @@ export default function CreateCampaignPage() {
                 <div className="campaign-card">
                   <div className="campaign-card-header">
                     <h2 className="campaign-card-title">Campaign Details</h2>
-                    <TextCaption as="span" className="app-muted">Step 1 of 4</TextCaption>
+                    <TextCaption as="span" className="app-muted">Step 1 of 5</TextCaption>
                   </div>
                   <TextBody as="p" className="app-muted mb-6 text-sm">
                     Give your campaign a name, description, and an optional cover image.
@@ -868,43 +1357,6 @@ export default function CreateCampaignPage() {
                       </button>
                     )}
                   </div>
-
-                  {/* Impact Metrics */}
-                  <div className="campaign-field">
-                    <label className="campaign-label">Expected Impact Metrics <span className="app-muted font-normal text-xs">(optional)</span></label>
-                    {impactMetrics.map((metric, i) => (
-                      <div key={i} className="mt-2 flex gap-2">
-                        <input
-                          type="text"
-                          value={metric.name}
-                          onChange={(e) => {
-                            const next = [...impactMetrics];
-                            next[i] = { ...next[i], name: e.target.value };
-                            setImpactMetrics(next);
-                          }}
-                          className="campaign-input flex-1"
-                          placeholder="Metric (e.g. People served)"
-                        />
-                        <input
-                          type="text"
-                          value={metric.target}
-                          onChange={(e) => {
-                            const next = [...impactMetrics];
-                            next[i] = { ...next[i], target: e.target.value };
-                            setImpactMetrics(next);
-                          }}
-                          className="campaign-input w-1/3"
-                          placeholder="Target (e.g. 500)"
-                        />
-                        <button type="button" onClick={() => setImpactMetrics((prev) => prev.filter((_, j) => j !== i))} className="campaign-milestone-remove" title="Remove">
-                          <Icon name="trashCan" size="s" />
-                        </button>
-                      </div>
-                    ))}
-                    <button type="button" onClick={() => setImpactMetrics((prev) => [...prev, { name: "", target: "" }])} className="campaign-add-milestone-btn mt-2">
-                      + Add Metric
-                    </button>
-                  </div>
                 </div>
 
                 {/* Navigation */}
@@ -920,52 +1372,69 @@ export default function CreateCampaignPage() {
             )}
 
             {/* ============================================================ */}
-            {/* STEP 2: Funding & Milestones                                 */}
+            {/* STEP 2: Budget & milestones                                  */}
             {/* ============================================================ */}
             {submitStep === "idle" && currentStep === 2 && (
               <div className="wizard-step-content">
                 <div className="campaign-card">
                   <div className="campaign-card-header">
-                    <h2 className="campaign-card-title">Funding & Milestones</h2>
-                    <TextCaption as="span" className="app-muted">Step 2 of 4</TextCaption>
+                    <h2 className="campaign-card-title">Budget & milestones</h2>
+                    <TextCaption as="span" className="app-muted">Step 2 of 5</TextCaption>
                   </div>
                   <TextBody as="p" className="app-muted mb-6 text-sm">
-                    Set your funding target and break it into milestones. Milestone amounts must total the target.
+                    Set your total budget first—it is the single source of truth. Milestone payouts are slices of that
+                    budget and must add up exactly. Optional outcomes mirror how programs like{" "}
+                    <span className="font-medium text-[var(--ui-text)]">Karma GAP</span> expect measurable indicators.
                   </TextBody>
 
-                  {/* Funding Target */}
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="campaign-field">
-                      <label className="campaign-label">
-                        Funding Target (USDC) <span className="text-red-500">*</span>
-                      </label>
-                      <div className="campaign-input-icon-wrapper">
+                  {/* —— Campaign budget (reference for milestones + bar) —— */}
+                  <div
+                    className="mb-8 rounded-2xl border border-[color-mix(in_oklab,var(--ui-brand-green)_28%,var(--ui-border))] bg-[color-mix(in_oklab,var(--ui-brand-green)_7%,transparent)] p-5 sm:p-6"
+                  >
+                    <div className="mb-4 flex flex-col gap-1">
+                      <TextLabel1 as="h3" className="app-text text-base font-bold">
+                        Campaign budget
+                      </TextLabel1>
+                      <TextBody as="p" className="app-muted text-sm leading-relaxed">
+                        This total is what you raise and what escrow allocates across milestones. Enter it before
+                        splitting amounts below—all milestone USDC values should refer back to this budget.
+                      </TextBody>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="campaign-field sm:col-span-1">
+                        <label className="campaign-label">
+                          Total budget (USDC) <span className="text-red-500">*</span>
+                        </label>
+                        <div className="campaign-input-icon-wrapper">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={targetAmount}
+                            onChange={(e) => setTargetAmount(e.target.value)}
+                            className="campaign-input campaign-input-with-icon font-medium tabular-nums"
+                            placeholder="e.g. 50000"
+                          />
+                          <span className="campaign-input-icon">
+                            <Icon name="cash" size="s" />
+                          </span>
+                        </div>
+                      </div>
+                      <div className="campaign-field sm:col-span-1">
+                        <label className="campaign-label">Campaign deadline <span className="text-red-500">*</span></label>
                         <input
-                          type="text"
-                          inputMode="decimal"
-                          value={targetAmount}
-                          onChange={(e) => setTargetAmount(e.target.value)}
-                          className="campaign-input campaign-input-with-icon"
-                          placeholder="e.g. 50000"
+                          type="date"
+                          value={deadline}
+                          onChange={(e) => setDeadline(e.target.value)}
+                          min={new Date(Date.now() + 86400000).toISOString().split("T")[0]}
+                          className="campaign-input"
                         />
-                        <span className="campaign-input-icon">
-                          <Icon name="cash" size="s" />
-                        </span>
                       </div>
                     </div>
-
-                    {/* Campaign Deadline */}
-                    <div className="campaign-field">
-                      <label className="campaign-label">Campaign Deadline <span className="text-red-500">*</span></label>
-                      <input
-                        type="date"
-                        value={deadline}
-                        onChange={(e) => setDeadline(e.target.value)}
-                        min={new Date(Date.now() + 86400000).toISOString().split("T")[0]}
-                        className="campaign-input"
-                      />
-                    </div>
                   </div>
+
+                  <TextLabel2 as="h3" className="app-text mb-3 text-sm font-semibold tracking-wide">
+                    Location & tags
+                  </TextLabel2>
 
                   {/* Location & Cause */}
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1016,11 +1485,15 @@ export default function CreateCampaignPage() {
                     </div>
                   </div>
 
-                  {/* Milestones */}
-                  <div className="mt-2">
-                    <label className="campaign-label mb-3 block">
-                      Milestones <span className="text-red-500">*</span>
+                  {/* Milestones — split budget */}
+                  <div className="mt-8">
+                    <label className="campaign-label mb-1 block">
+                      Split your budget into milestones <span className="text-red-500">*</span>
                     </label>
+                    <TextCaption as="p" className="app-muted mb-4 max-w-3xl text-sm leading-relaxed">
+                      Each row is a tranche of your total budget (USDC). Titles and descriptions are what you will
+                      deliver; amounts must add up to exactly your campaign budget above.
+                    </TextCaption>
                     {milestones.map((m, i) => (
                       <div key={i} className="campaign-milestone-block mb-4 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-4 dark:bg-[var(--ui-surface)]">
                         <div className="campaign-milestone-header mb-3">
@@ -1044,15 +1517,15 @@ export default function CreateCampaignPage() {
                             inputMode="decimal"
                             value={m.amount}
                             onChange={(e) => updateMilestone(i, "amount", e.target.value)}
-                            className="campaign-input"
-                            placeholder="Amount (USDC)"
+                            className="campaign-input tabular-nums"
+                            placeholder="USDC from budget (e.g. 15000)"
                           />
                         </div>
                         <textarea
                           value={m.description}
                           onChange={(e) => updateMilestone(i, "description", e.target.value)}
                           className="campaign-textarea mt-3 text-sm"
-                          placeholder="Describe deliverables for this milestone..."
+                          placeholder="Deliverables, verification, proof of work for this tranche…"
                           rows={2}
                         />
                       </div>
@@ -1062,28 +1535,103 @@ export default function CreateCampaignPage() {
                     </button>
                   </div>
 
-                  {/* Milestone sum indicator */}
-                  {targetAmount && milestones.some((m) => m.amount) && (
-                    <div className="mt-5 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-4 dark:bg-[var(--ui-surface)]">
-                      <ProgressBar
-                        progress={targetWei > BigInt(0) ? Math.min(1, Number((milestoneSum * BigInt(100)) / targetWei) / 100) : 0}
-                        accessibilityLabel="Milestone sum progress"
-                      />
-                      <div className="mt-3 flex items-center justify-between">
-                        <TextCaption as="span" className="app-muted">Milestone total</TextCaption>
+                  {/* Budget allocation — milestone sums vs total budget */}
+                  {(targetAmount.trim().length > 0 ||
+                    milestones.some((m) => m.amount.trim() || m.title.trim())) && (
+                    <div className="mt-6 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-4 dark:bg-[var(--ui-surface)]">
+                      <TextCaption as="p" className="app-muted mb-2 block text-[11px] font-semibold uppercase tracking-wider">
+                        Budget allocation
+                      </TextCaption>
+                      <div className="w-full rounded-full h-2 bg-[color-mix(in_oklab,var(--ui-border)_35%,transparent)]">
+                        <div
+                          className={`h-2 min-w-px rounded-full transition-[width] duration-200 ease-out ${
+                            fundingBarOverTarget
+                              ? "bg-[var(--ui-brand-amber)]"
+                              : "bg-[var(--ui-brand-green)]"
+                          }`}
+                          style={{ width: `${fundingBarWidthPct}%` }}
+                        />
+                      </div>
+                      {fundingBarRawPct != null && targetParse.ok && (
+                        <TextCaption as="p" className="app-muted mt-1.5 text-[11px] leading-snug tabular-nums">
+                          {fundingBarOverTarget
+                            ? `${fundingBarRawPct.toFixed(1)}% of budget — milestone total exceeds campaign budget`
+                            : `${fundingBarRawPct.toFixed(1)}% of budget allocated in milestones`}
+                        </TextCaption>
+                      )}
+                      {fundingBarRawPct == null && milestoneSum > BigInt(0) && !milestoneParseError && (
+                        <TextCaption as="p" className="app-muted mt-1.5 text-[11px] leading-snug">
+                          Enter a valid total budget above to show how much of it your milestones cover.
+                        </TextCaption>
+                      )}
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <TextCaption as="span" className="app-muted block">
+                            Milestone payouts vs budget
+                          </TextCaption>
+                          {targetParse.ok ? (
+                            <TextCaption as="span" className="app-text mt-0.5 block font-medium tabular-nums">
+                              {formatUsdc(milestoneSum)} / {formatUsdc(targetWei)} USDC
+                            </TextCaption>
+                          ) : targetAmount.trim() && !targetParse.empty ? (
+                            <TextCaption as="span" className="app-muted mt-0.5 block">
+                              Fix total budget to compare milestone totals
+                            </TextCaption>
+                          ) : milestoneSum > BigInt(0) ? (
+                            <TextCaption as="span" className="app-muted mt-0.5 block tabular-nums">
+                              Parsed milestones: {formatUsdc(milestoneSum)} USDC — set budget above to reconcile
+                            </TextCaption>
+                          ) : null}
+                        </div>
                         <TextCaption
                           as="span"
-                          className={milestoneSumMatches ? "text-[var(--ui-brand-green)] font-semibold" : "text-[var(--ui-brand-amber)] font-semibold"}
+                          className={
+                            fundingStatusOk
+                              ? "text-[var(--ui-brand-green)] font-semibold"
+                              : fundingNeedsAttention
+                                ? "text-[var(--ui-brand-amber)] font-semibold"
+                                : "app-muted"
+                          }
                         >
-                          {milestoneSumMatches ? (
-                            <span className="flex items-center gap-1"><Icon name="circleCheckmark" size="xs" /> Amounts match target</span>
+                          {milestoneParseError ? (
+                            <span className="flex items-center gap-1">
+                              <Icon name="warning" size="xs" /> Use valid numbers for each amount
+                            </span>
+                          ) : targetAmount.trim() && !targetParse.ok && !targetParse.empty ? (
+                            <span className="flex items-center gap-1">
+                              <Icon name="warning" size="xs" /> Enter a valid total budget
+                            </span>
+                          ) : targetParse.ok && !milestonesComplete ? (
+                            <span className="flex items-center gap-1">
+                              <Icon name="warning" size="xs" /> Complete every milestone (title + amount), or remove
+                              an empty row
+                            </span>
+                          ) : targetParse.ok && milestonesComplete && !milestoneSumMatches ? (
+                            milestoneSum < targetWei ? (
+                              <span className="flex items-center gap-1">
+                                <Icon name="warning" size="xs" /> Short by{" "}
+                                {formatUsdc(targetWei - milestoneSum)} USDC
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1">
+                                <Icon name="warning" size="xs" /> Over by{" "}
+                                {formatUsdc(milestoneSum - targetWei)} USDC
+                              </span>
+                            )
+                          ) : fundingStatusOk ? (
+                            <span className="flex items-center gap-1">
+                              <Icon name="circleCheckmark" size="xs" /> Milestones match budget
+                            </span>
                           ) : (
-                            <span className="flex items-center gap-1"><Icon name="warning" size="xs" /> Adjust milestones to match target</span>
+                            <span className="flex items-center gap-1">
+                              Set your total budget, then allocate it across milestones
+                            </span>
                           )}
                         </TextCaption>
                       </div>
                     </div>
                   )}
+
                 </div>
 
                 {/* Navigation */}
@@ -1104,14 +1652,147 @@ export default function CreateCampaignPage() {
             )}
 
             {/* ============================================================ */}
-            {/* STEP 3: Verification & Escrow                                */}
+            {/* STEP 3: Expected outcomes                                    */}
             {/* ============================================================ */}
             {submitStep === "idle" && currentStep === 3 && (
               <div className="wizard-step-content">
                 <div className="campaign-card">
                   <div className="campaign-card-header">
+                    <h2 className="campaign-card-title">Expected outcomes & measurement</h2>
+                    <TextCaption as="span" className="app-muted">Step 3 of 5</TextCaption>
+                  </div>
+                  <TextBody as="p" className="app-muted mb-4 text-sm">
+                    Define a small set of outcome indicators so donors and evaluators can see what success looks like.
+                    This is optional but strongly recommended—similar to how programs like{" "}
+                    <span className="font-medium text-[var(--ui-text)]">Karma GAP</span> structure project reporting.
+                  </TextBody>
+
+                  <ul className="app-muted mb-4 list-disc space-y-1 pl-5 text-xs leading-relaxed">
+                    <li>
+                      <span className="font-medium text-[var(--ui-text)]">Indicator</span> — what you measure (people,
+                      kWh, hectares, sessions…).
+                    </li>
+                    <li>
+                      <span className="font-medium text-[var(--ui-text)]">Target / deliverable</span> — the concrete
+                      result or threshold (“200 households”, “portal live with 50 orgs”).
+                    </li>
+                    <li>
+                      <span className="font-medium text-[var(--ui-text)]">Horizon</span> — when you expect to report
+                      (near-, mid-, or long-term).
+                    </li>
+                  </ul>
+
+                  <div className="mt-2 space-y-3">
+                    {impactMetrics.map((metric, i) => (
+                      <div
+                        key={i}
+                        className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-4 dark:bg-[var(--ui-surface)]"
+                      >
+                        <div className="mb-3 flex items-start justify-between gap-2">
+                          <TextCaption as="span" className="text-[11px] font-bold uppercase tracking-wider text-[var(--ui-muted)]">
+                            Outcome {i + 1}
+                          </TextCaption>
+                          <button
+                            type="button"
+                            onClick={() => setImpactMetrics((prev) => prev.filter((_, j) => j !== i))}
+                            className="campaign-milestone-remove shrink-0"
+                            title="Remove"
+                          >
+                            <Icon name="trashCan" size="s" />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+                          <div className="lg:col-span-5">
+                            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--ui-muted)]">
+                              Indicator
+                            </label>
+                            <input
+                              type="text"
+                              value={metric.name}
+                              onChange={(e) => {
+                                const next = [...impactMetrics];
+                                next[i] = { ...next[i], name: e.target.value };
+                                setImpactMetrics(next);
+                              }}
+                              className="campaign-input w-full"
+                              placeholder="e.g. Community members trained"
+                            />
+                          </div>
+                          <div className="lg:col-span-3">
+                            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--ui-muted)]">
+                              Time horizon
+                            </label>
+                            <select
+                              value={metric.timeframe ?? ""}
+                              onChange={(e) => {
+                                const next = [...impactMetrics];
+                                next[i] = { ...next[i], timeframe: e.target.value };
+                                setImpactMetrics(next);
+                              }}
+                              className="campaign-select w-full"
+                            >
+                              {METRIC_TIMEFRAME_OPTIONS.map((o) => (
+                                <option key={o.value || "none"} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="lg:col-span-4">
+                            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[var(--ui-muted)]">
+                              Target / deliverable
+                            </label>
+                            <textarea
+                              value={metric.target}
+                              onChange={(e) => {
+                                const next = [...impactMetrics];
+                                next[i] = { ...next[i], target: e.target.value };
+                                setImpactMetrics(next);
+                              }}
+                              className="campaign-textarea min-h-[4rem] w-full text-sm"
+                              placeholder="e.g. 350 people complete certification — evidence: attendance sheets + test scores"
+                              rows={3}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setImpactMetrics((prev) => [...prev, { ...EMPTY_IMPACT_METRIC }])}
+                    className="campaign-add-milestone-btn mt-4"
+                  >
+                    + Add outcome indicator
+                  </button>
+                </div>
+
+                {/* Navigation */}
+                <div className="wizard-nav">
+                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
+                    Back
+                  </Button>
+                  <div className="flex gap-3">
+                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
+                      Save Draft
+                    </Button>
+                    <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext}>
+                      Continue
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ============================================================ */}
+            {/* STEP 4: Verification & Escrow                                */}
+            {/* ============================================================ */}
+            {submitStep === "idle" && currentStep === 4 && (
+              <div className="wizard-step-content">
+                <div className="campaign-card">
+                  <div className="campaign-card-header">
                     <h2 className="campaign-card-title">Verification & Smart Escrow</h2>
-                    <TextCaption as="span" className="app-muted">Step 3 of 4</TextCaption>
+                    <TextCaption as="span" className="app-muted">Step 4 of 5</TextCaption>
                   </div>
                   <TextBody as="p" className="app-muted mb-6 text-sm">
                     Configure attestation requirements and payment options.
@@ -1173,14 +1854,14 @@ export default function CreateCampaignPage() {
             )}
 
             {/* ============================================================ */}
-            {/* STEP 4: Review & Launch                                      */}
+            {/* STEP 5: Review & Launch                                      */}
             {/* ============================================================ */}
-            {submitStep === "idle" && currentStep === 4 && (
+            {submitStep === "idle" && currentStep === 5 && (
               <div className="wizard-step-content">
                 <div className="campaign-card">
                   <div className="campaign-card-header">
                     <h2 className="campaign-card-title">Review & Launch</h2>
-                    <TextCaption as="span" className="app-muted">Step 4 of 4</TextCaption>
+                    <TextCaption as="span" className="app-muted">Step 5 of 5</TextCaption>
                   </div>
                   <TextBody as="p" className="app-muted mb-6 text-sm">
                     Review all details before creating your campaign on-chain.
@@ -1209,17 +1890,17 @@ export default function CreateCampaignPage() {
                     )}
                   </div>
 
-                  {/* Section: Funding & Milestones */}
+                  {/* Section: Budget, milestones & outcomes */}
                   <div className="wizard-review-section bg-[var(--ui-surface-elev)]/30 p-5 rounded-2xl mb-4 border border-[var(--ui-border)]">
                     <div className="wizard-review-header">
-                      <TextLabel1 as="h3" className="brand-green font-bold text-base">Funding & Milestones</TextLabel1>
+                      <TextLabel1 as="h3" className="brand-green font-bold text-base">Budget, milestones & outcomes</TextLabel1>
                       <button type="button" onClick={() => goToStep(2)} className="wizard-review-edit">
                         <Icon name="pencil" size="s" className="mr-1" /> Edit
                       </button>
                     </div>
                     <div className="wizard-review-grid flex flex-col sm:grid sm:grid-cols-2 gap-4">
                       <div className="flex flex-col gap-1">
-                        <TextCaption as="span" className="text-[var(--ui-muted)] dark:text-gray-400 text-[11px] uppercase tracking-wider font-bold">Target</TextCaption>
+                        <TextCaption as="span" className="text-[var(--ui-muted)] dark:text-gray-400 text-[11px] uppercase tracking-wider font-bold">Total budget</TextCaption>
                         <TextBody as="p" className="app-text font-medium">{targetAmount ? `${targetAmount} USDC` : "—"}</TextBody>
                       </div>
                       <div className="flex flex-col gap-1">
@@ -1240,6 +1921,33 @@ export default function CreateCampaignPage() {
                         </div>
                       ))}
                     </div>
+                    {impactMetrics.some((m) => m.name.trim() || m.target.trim()) && (
+                      <div className="mt-4 border-t border-[var(--ui-border)] pt-4">
+                        <TextCaption as="p" className="mb-2 text-[11px] font-bold uppercase tracking-wider text-[var(--ui-muted)]">
+                          Expected outcomes
+                        </TextCaption>
+                        <ul className="space-y-2">
+                          {impactMetrics
+                            .filter((m) => m.name.trim() || m.target.trim())
+                            .map((m, i) => (
+                              <li
+                                key={i}
+                                className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-2.5 text-sm dark:bg-[var(--ui-surface)]"
+                              >
+                                <TextBody as="p" className="app-text font-medium">{m.name || "—"}</TextBody>
+                                {m.timeframe ? (
+                                  <TextCaption as="p" className="app-muted mt-0.5 text-xs">
+                                    {METRIC_TIMEFRAME_OPTIONS.find((o) => o.value === m.timeframe)?.label || m.timeframe}
+                                  </TextCaption>
+                                ) : null}
+                                <TextBody as="p" className="app-muted mt-1 text-xs leading-relaxed whitespace-pre-wrap">
+                                  {m.target || "—"}
+                                </TextBody>
+                              </li>
+                            ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
 
                   {/* Section: Verification & Escrow */}
@@ -1284,10 +1992,48 @@ export default function CreateCampaignPage() {
                       className="mt-0.5 h-4 w-4 rounded accent-[var(--ui-brand-green)]"
                     />
                     <TextBody as="span" className="app-text text-sm leading-relaxed">
-                      I acknowledge that donated funds will be held in a smart contract escrow and released only when milestones are verified through EAS attestations. Campaign details will be permanently stored on IPFS.
+                      terms and conditions place holder
                     </TextBody>
                   </label>
                 </div>
+
+                {process.env.NODE_ENV === "development" && (
+                  <div className="mt-4 p-4 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono text-left text-gray-800 dark:text-gray-200">
+                    <p><strong>Debug Validation:</strong></p>
+                    <p>isConnected: {String(isConnected)}</p>
+                    <p>hasAddress: {String(!!address)}</p>
+                    <p>hasRegistryAddress: {String(!!registryAddress)}</p>
+                    <p>hasEscrowAddress: {String(!!escrowAddress)}</p>
+                    <p>step1Valid: {String(step1Valid)} (title: {title.length}, desc: {description.length})</p>
+                    <p>step2Valid: {String(step2Valid)}</p>
+                    <p>- targetAmount: {String(!!targetAmount)}</p>
+                    <p>- targetWei: {targetWei.toString()}</p>
+                    <p>- milestoneSum: {milestoneSum.toString()}</p>
+                    <p>
+                      - fundingBar: raw% {fundingBarRawPct == null ? "null" : fundingBarRawPct.toFixed(4)}, width{" "}
+                      {String(fundingBarWidthPct)}, over {String(fundingBarOverTarget)}
+                    </p>
+                    <p>
+                      - showFundingPanel:{" "}
+                      {String(
+                        Boolean(
+                          targetAmount.trim().length > 0 ||
+                            milestones.some((m) => m.amount.trim() || m.title.trim()),
+                        ),
+                      )}
+                    </p>
+                    <p>- milestonesComplete: {String(milestonesComplete)}</p>
+                    <p>- milestoneParseError: {String(milestoneParseError)}</p>
+                    <p>- targetParse.ok: {String(targetParse.ok)}</p>
+                    <p>- milestoneSumMatches: {String(milestoneSumMatches)} (sum: {milestoneSum.toString()}, target: {targetWei.toString()})</p>
+                    <p>- region: {String(!!region.trim())}</p>
+                    <p>- deadline: {String(!!deadline)}</p>
+                    <p>step3Valid: {String(step3Valid)}</p>
+                    <p>termsAccepted: {String(termsAccepted)}</p>
+                    <p>orgStatus === verified: {String(orgStatus === "verified")} (current: {orgStatus})</p>
+                    <p>submitStep === idle: {String(submitStep === "idle")}</p>
+                  </div>
+                )}
 
                 {/* Launch buttons */}
                 <div className="wizard-nav">
@@ -1313,13 +2059,32 @@ export default function CreateCampaignPage() {
             {(submitStep === "creating" || isPendingCreate || isConfirmingCreate) && (
               <div className="mt-6 flex items-center gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-brand-amber)]/10 border-[var(--ui-brand-amber)]/20 p-4">
                 <Spinner size={3} accessibilityLabel="Confirming transaction" />
-                <div>
+                <div className="flex-1">
                   <TextBody as="p" className="app-text font-medium text-amber-600">Waiting for on-chain confirmation...</TextBody>
                   {txCreate && (
                     <TextCaption as="p" className="app-muted mt-1">
-                      Tx: <a href={"https://basescan.org/tx/" + txCreate} target="_blank" rel="noopener noreferrer" className="link-amber">{String(txCreate).slice(0, 14)}...</a>
+                      Tx: <a href={"https://sepolia.basescan.org/tx/" + txCreate} target="_blank" rel="noopener noreferrer" className="link-amber">{String(txCreate).slice(0, 14)}...</a>
                     </TextCaption>
                   )}
+                  {pendingUserOperationHash && (
+                    <TextCaption as="p" className="app-muted mt-1">
+                      User op: {pendingUserOperationHash.slice(0, 14)}...
+                    </TextCaption>
+                  )}
+                  {hasCanonicalCdpTransactionHash && cdpTransactionHash && (
+                    <TextCaption as="p" className="app-muted mt-1">
+                      CDP Tx: <a href={"https://sepolia.basescan.org/tx/" + cdpTransactionHash} target="_blank" rel="noopener noreferrer" className="link-amber">{String(cdpTransactionHash).slice(0, 14)}...</a>
+                    </TextCaption>
+                  )}
+                  {/* Debug info - always visible during creating step */}
+                  <div className="mt-2 p-2 bg-black/5 rounded text-xs font-mono text-gray-600">
+                    <p>Debug: txHash={txCreate ? "yes" : "no"} | userOp={pendingUserOperationHash ? "yes" : "no"} | cdpTxValid={String(hasCanonicalCdpTransactionHash)} | receipt={receiptCreate ? "yes" : "no"} | pending={String(isPendingCreate)} | confirming={String(isConfirmingCreate)} | cdpStatus={cdpUserOperation?.status ?? "none"}</p>
+                    {cdpTransactionHash && !hasCanonicalCdpTransactionHash && (
+                      <p className="text-amber-700">Skipping interim CDP hash until canonical tx hash is available.</p>
+                    )}
+                    {txCreateError && <p className="text-red-500">Error: {txCreateError.message}</p>}
+                    {cdpTxError && <p className="text-red-500">CDP Error: {cdpTxError.message}</p>}
+                  </div>
                 </div>
               </div>
             )}
@@ -1332,18 +2097,22 @@ export default function CreateCampaignPage() {
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-[var(--ui-brand-green)]">On-chain Campaign Created!</h3>
-                    <p className="app-text text-sm mt-1">Success! Your campaign is now live on the blockchain. Now, please sign a one-time message to verify your identity and save the campaign details to our discovery engine.</p>
+                    <p className="app-text text-sm mt-1">Success! Your campaign is now live on the blockchain. The details will be saved to the discovery engine as soon as the receipt is available.</p>
                   </div>
                 </div>
                 <div className="mt-6 flex justify-end">
                   <Button
                     variant="primary"
-                    onClick={handleSignAndSave}
-                    disabled={submitStep === "signing" || submitStep === "saving"}
+                    onClick={() => {
+                      if (createdCampaignId !== undefined && receiptCreate && address) {
+                        void saveCampaignToDb(createdCampaignId, receiptCreate, address);
+                      }
+                    }}
+                    disabled={submitStep === "saving"}
                     className="shadow-lg hover:scale-105 transition-transform"
-                    start={(submitStep === "signing" || submitStep === "saving") ? <Spinner size={2} /> : <Icon name="pencil" size="s" />}
+                    start={submitStep === "saving" ? <Spinner size={2} /> : <Icon name="pencil" size="s" />}
                   >
-                    {submitStep === "signing" ? "Waiting for Sign..." : submitStep === "saving" ? "Saving..." : "Sign & Finalize"}
+                    {submitStep === "saving" ? "Saving..." : "Save campaign"}
                   </Button>
                 </div>
               </div>

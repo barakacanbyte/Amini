@@ -53,13 +53,54 @@ CREATE TABLE public.campaigns (
   description text,
   image_url text,
   region text,
-  cause text
+  cause text,
+  -- Enriched metadata added by later migrations
+  deadline timestamptz,
+  contact_email text,
+  beneficiary_description text,
+  status text NOT NULL DEFAULT 'active',
+  milestone_data jsonb,
+  social_links jsonb,
+  impact_metrics jsonb,
+  tags text[],
+  -- Draft / wizard support
+  is_fully_created boolean NOT NULL DEFAULT true,
+  draft_payload jsonb
 );
 
 CREATE INDEX idx_campaigns_owner ON public.campaigns(owner);
 CREATE INDEX idx_campaigns_beneficiary ON public.campaigns(beneficiary);
 CREATE INDEX idx_campaigns_region ON public.campaigns(region);
 CREATE INDEX idx_campaigns_cause ON public.campaigns(cause);
+CREATE INDEX idx_campaigns_is_fully_created ON public.campaigns(is_fully_created);
+CREATE UNIQUE INDEX idx_campaigns_one_draft_per_owner ON public.campaigns (owner) WHERE is_fully_created = false;
+
+COMMENT ON COLUMN public.campaigns.is_fully_created IS
+  'false = wizard draft (synthetic negative id); true = published on-chain campaign.';
+COMMENT ON COLUMN public.campaigns.draft_payload IS
+  'JSON for fields not mapped to columns (e.g. wizard step, cover data URL).';
+
+COMMENT ON COLUMN public.campaigns.impact_metrics IS
+  'JSON array of expected outcomes: [{ name, target, timeframe? }] used for reporting UX.';
+
+-- Negative bigint ids for draft-only rows (never collide with on-chain campaign ids).
+CREATE SEQUENCE public.campaign_draft_local_id_seq
+  AS bigint
+  INCREMENT BY -1
+  START WITH -1
+  MINVALUE -9223372036854775808
+  MAXVALUE -1;
+
+CREATE OR REPLACE FUNCTION public.next_campaign_draft_local_id()
+RETURNS bigint
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT nextval('public.campaign_draft_local_id_seq');
+$$;
+
+GRANT EXECUTE ON FUNCTION public.next_campaign_draft_local_id() TO anon, authenticated, service_role;
 
 -- === Escrow & releases ===
 CREATE TABLE public.escrow_deposits (

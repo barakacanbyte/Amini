@@ -32,7 +32,10 @@ export async function GET(req: Request) {
     };
 
     const [campaignsRes, orgsRes, depositsRes, pendingOrgsRes] = await Promise.all([
-      fetch(`${supabaseUrl}/rest/v1/campaigns?select=id,target_amount`, { headers }),
+      fetch(
+        `${supabaseUrl}/rest/v1/campaigns?select=id,target_amount&is_fully_created=eq.true`,
+        { headers },
+      ),
       fetch(`${supabaseUrl}/rest/v1/organizations?status=eq.approved&select=id`, { headers }),
       fetch(`${supabaseUrl}/rest/v1/escrow_deposits?select=amount`, { headers }),
       fetch(`${supabaseUrl}/rest/v1/organizations?status=eq.pending&select=id`, { headers }),

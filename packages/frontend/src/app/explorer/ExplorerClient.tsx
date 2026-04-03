@@ -64,11 +64,12 @@ export function ExplorerClient() {
       const walletLike = q.startsWith("0x") && q.length >= 10;
       const txLike = q.startsWith("0x") && q.length >= 32;
 
+      const pubCampaign = `${supabaseUrl}/rest/v1/campaigns?select=id,owner,beneficiary,target_amount,milestone_count,created_at&is_fully_created=eq.true`;
       const campaignUrl = isNumeric
-        ? `${supabaseUrl}/rest/v1/campaigns?select=id,owner,beneficiary,target_amount,milestone_count,created_at&id=eq.${q}&limit=20`
+        ? `${pubCampaign}&id=eq.${q}&limit=20`
         : walletLike
-          ? `${supabaseUrl}/rest/v1/campaigns?select=id,owner,beneficiary,target_amount,milestone_count,created_at&or=(owner.eq.${q.toLowerCase()},beneficiary.eq.${q.toLowerCase()})&limit=20`
-          : `${supabaseUrl}/rest/v1/campaigns?select=id,owner,beneficiary,target_amount,milestone_count,created_at&limit=0`;
+          ? `${pubCampaign}&or=(owner.eq.${q.toLowerCase()},beneficiary.eq.${q.toLowerCase()})&limit=20`
+          : `${pubCampaign}&limit=0`;
 
       const depositUrl = txLike
         ? `${supabaseUrl}/rest/v1/escrow_deposits?select=tx_hash,campaign_id,depositor,amount,created_at&tx_hash=eq.${q}&limit=20`

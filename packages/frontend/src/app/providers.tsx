@@ -13,6 +13,7 @@ import { getCdpWalletConfig } from "@/lib/cdpWalletConfig";
 import { getPublicLogoUrl } from "@/lib/branding";
 import { cdpEmbeddedWalletTheme } from "@/theme/cdpEmbeddedWalletTheme";
 import { AppThemeProvider } from "@/context/AppThemeContext";
+import { useEffect } from "react";
 import {
   AminiSigningProviderCdp,
   AminiSigningProviderWagmi,
@@ -124,6 +125,38 @@ function CdpOptionalShell({ children }: { children: ReactNode }) {
 }
 
 export function Providers({ children }: { children: ReactNode }) {
+  // Avoid noisy React runtime warnings coming from third-party UI libraries.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+
+    const needle = "React does not recognize the `testID` prop on a DOM element";
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    const filtered = (...args: unknown[]) => {
+      const first = typeof args?.[0] === "string" ? args[0] : "";
+      if (first.includes(needle)) return;
+      return originalError(...args);
+    };
+
+    const filteredWarn = (...args: unknown[]) => {
+      const first = typeof args?.[0] === "string" ? args[0] : "";
+      if (first.includes(needle)) return;
+      return originalWarn(...args);
+    };
+
+    // React uses console.error for this particular warning.
+    // eslint-disable-next-line no-console
+    console.error = filtered;
+    // eslint-disable-next-line no-console
+    console.warn = filteredWarn;
+
+    return () => {
+      console.error = originalError;
+      console.warn = originalWarn;
+    };
+  }, []);
+
   return (
     <AppThemeProvider>
       <MediaQueryProvider>

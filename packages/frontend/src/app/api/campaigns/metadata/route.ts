@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       try { socialLinks = JSON.parse(socialLinksRaw); } catch { /* ignore */ }
     }
 
-    let impactMetrics: Array<{ name: string; target: string }> = [];
+    let impactMetrics: Array<{ name: string; target: string; timeframe?: string }> = [];
     if (impactMetricsRaw) {
       try { impactMetrics = JSON.parse(impactMetricsRaw); } catch { /* ignore */ }
     }

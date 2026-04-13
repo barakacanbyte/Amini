@@ -13,9 +13,16 @@ CREATE TABLE public.profiles (
   name text,
   email text,
   avatar_url text,
+  headline text,
+  bio text,
+  location text,
+  profile_slug text,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
+
+CREATE UNIQUE INDEX idx_profiles_profile_slug_unique ON public.profiles (profile_slug)
+  WHERE profile_slug IS NOT NULL AND btrim(profile_slug) <> '';
 
 CREATE TABLE public.organizations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -32,9 +39,77 @@ CREATE TABLE public.organizations (
   ens_name text,
   has_coinbase_verification boolean DEFAULT false,
   logo_url text,
+  cover_image_url text,
+  tagline text,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
+
+CREATE TABLE public.organization_posts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES public.organizations (id) ON DELETE CASCADE,
+  author_wallet text NOT NULL,
+  body text NOT NULL CHECK (
+    char_length(body) > 0
+    AND char_length(body) <= 8000
+  ),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_organization_posts_org_created ON public.organization_posts (organization_id, created_at DESC);
+
+CREATE TABLE public.organization_post_media (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id uuid NOT NULL REFERENCES public.organization_posts (id) ON DELETE CASCADE,
+  cid text,
+  url text,
+  content_type text NOT NULL CHECK (content_type IN ('image/jpeg', 'image/png', 'image/webp', 'image/gif')),
+  byte_size int NOT NULL CHECK (byte_size > 0 AND byte_size <= 5242880),
+  width int,
+  height int,
+  sort_order smallint NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (cid IS NOT NULL OR url IS NOT NULL)
+);
+
+CREATE INDEX idx_org_post_media_post_sort
+  ON public.organization_post_media (post_id, sort_order, created_at);
+
+CREATE TABLE public.organization_post_likes (
+  post_id uuid NOT NULL REFERENCES public.organization_posts (id) ON DELETE CASCADE,
+  wallet text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (post_id, wallet)
+);
+
+CREATE INDEX idx_org_post_likes_post_created
+  ON public.organization_post_likes (post_id, created_at DESC);
+
+CREATE TABLE public.organization_post_comments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id uuid NOT NULL REFERENCES public.organization_posts (id) ON DELETE CASCADE,
+  parent_id uuid REFERENCES public.organization_post_comments (id) ON DELETE CASCADE,
+  author_wallet text NOT NULL,
+  body text NOT NULL CHECK (char_length(body) > 0 AND char_length(body) <= 2000),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_org_post_comments_post_created
+  ON public.organization_post_comments (post_id, created_at ASC);
+CREATE INDEX idx_org_post_comments_parent_created
+  ON public.organization_post_comments (parent_id, created_at ASC);
+
+CREATE TABLE public.organization_post_shares (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id uuid NOT NULL REFERENCES public.organization_posts (id) ON DELETE CASCADE,
+  wallet text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_org_post_shares_post_created
+  ON public.organization_post_shares (post_id, created_at DESC);
 
 -- === Campaigns (indexer + optional org link + explorer metadata) ===
 CREATE TABLE public.campaigns (
@@ -154,6 +229,40 @@ CREATE INDEX idx_escrow_deposits_campaign ON public.escrow_deposits(campaign_id)
 CREATE INDEX idx_milestone_releases_campaign ON public.milestone_releases(campaign_id);
 CREATE INDEX idx_impact_posts_campaign ON public.impact_posts(campaign_id);
 
+CREATE TABLE public.campaign_comments (
+  id bigserial PRIMARY KEY,
+  campaign_id bigint NOT NULL REFERENCES public.campaigns (id) ON DELETE CASCADE,
+  parent_id bigint REFERENCES public.campaign_comments (id) ON DELETE CASCADE,
+  author_wallet text NOT NULL,
+  body text NOT NULL CHECK (
+    char_length(body) > 0
+    AND char_length(body) <= 2000
+  ),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_campaign_comments_campaign ON public.campaign_comments (campaign_id);
+CREATE INDEX idx_campaign_comments_created ON public.campaign_comments (campaign_id, created_at DESC);
+CREATE INDEX idx_campaign_comments_parent ON public.campaign_comments (parent_id);
+
+CREATE TABLE public.campaign_xmtp_thread_bindings (
+  id bigserial PRIMARY KEY,
+  campaign_id bigint NOT NULL REFERENCES public.campaigns (id) ON DELETE CASCADE,
+  viewer_wallet text NOT NULL,
+  peer_wallet text NOT NULL,
+  xmtp_env text NOT NULL CHECK (xmtp_env IN ('dev', 'production')),
+  xmtp_conversation_id text NOT NULL CHECK (
+    char_length(xmtp_conversation_id) > 0
+    AND char_length(xmtp_conversation_id) <= 512
+  ),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT campaign_xmtp_thread_bindings_unique_quad UNIQUE (campaign_id, viewer_wallet, peer_wallet, xmtp_env)
+);
+
+CREATE INDEX idx_xmtp_bindings_campaign ON public.campaign_xmtp_thread_bindings (campaign_id);
+CREATE INDEX idx_xmtp_bindings_viewer ON public.campaign_xmtp_thread_bindings (viewer_wallet);
+
 -- === Indexer ===
 CREATE TABLE public.indexer_state (
   id text PRIMARY KEY,
@@ -191,7 +300,17 @@ CREATE INDEX idx_reputation_score ON public.reputation_scores(score DESC);
 -- === RLS (from user_roles migration) ===
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_posts ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
 CREATE POLICY "Organizations are viewable by everyone" ON public.organizations FOR SELECT USING (true);
 CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid()::text = wallet);
+
+CREATE POLICY "Org posts viewable for approved orgs" ON public.organization_posts FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+    FROM public.organizations o
+    WHERE o.id = organization_posts.organization_id
+      AND o.status = 'approved'
+  )
+);

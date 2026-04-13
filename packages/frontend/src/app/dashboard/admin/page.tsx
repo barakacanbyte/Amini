@@ -18,8 +18,9 @@ import {
   WalletDropdown,
   WalletDropdownDisconnect,
 } from "@coinbase/onchainkit/wallet";
+import { getCdpWalletConfig } from "@/lib/cdpWalletConfig";
 
-const cdpConfigured = Boolean((process.env.NEXT_PUBLIC_CDP_PROJECT_ID ?? "").trim());
+const cdpConfigured = Boolean(getCdpWalletConfig());
 
 interface AdminStats {
   totalVolume: string;
@@ -423,7 +424,7 @@ export default function AdminDashboard() {
           closeAccessibilityLabel="Close"
         />
         <ModalBody>
-          <div className="space-y-4">
+          <div className="readable-cds-fields space-y-4">
             <p className="text-base text-[var(--ui-text)] leading-relaxed">
               Are you sure you want to reject <strong>{selectedOrg?.name}</strong>?
             </p>

@@ -5,6 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { useAminiSigning } from "@/context/AminiSigningContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CdpEmbeddedAuth } from "@/components/CdpEmbeddedAuth";
 import {
@@ -15,8 +17,8 @@ import {
 } from "@coinbase/onchainkit/wallet";
 import { Dropdown, MenuItem } from "@coinbase/cds-web/dropdown";
 import { Icon } from "@coinbase/cds-web/icons";
-
-const cdpConfigured = Boolean((process.env.NEXT_PUBLIC_CDP_PROJECT_ID ?? "").trim());
+import { Bell, MessageCircle } from "lucide-react";
+import { getCdpWalletConfig } from "@/lib/cdpWalletConfig";
 
 const NAV_ITEMS = [
   { href: "/#overview", label: "Overview", match: (path: string) => path === "/" },
@@ -50,11 +52,96 @@ function NavLink({
   );
 }
 
+type OrgRow = { id: string; name: string; status: string };
+
 function ProfileMenu() {
+  const { address, isConnected } = useAminiSigning();
+  const [orgs, setOrgs] = useState<OrgRow[]>([]);
+  const [publicProfileSlug, setPublicProfileSlug] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!address || !isConnected) {
+      setOrgs([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/organizations?wallet=${encodeURIComponent(address)}&list=1`)
+      .then((r) => r.json())
+      .then((j: { ok?: boolean; organizations?: OrgRow[] }) => {
+        if (!cancelled && j.ok && Array.isArray(j.organizations)) setOrgs(j.organizations);
+      })
+      .catch(() => {
+        if (!cancelled) setOrgs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [address, isConnected]);
+
+  useEffect(() => {
+    if (!address || !isConnected) {
+      setPublicProfileSlug(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/profiles/${encodeURIComponent(address.toLowerCase())}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { ok?: boolean; profile?: { profile_slug?: string | null } | null }) => {
+        if (cancelled) return;
+        const slug = j?.ok && j.profile?.profile_slug ? String(j.profile.profile_slug).trim() : "";
+        setPublicProfileSlug(slug || null);
+      })
+      .catch(() => {
+        if (!cancelled) setPublicProfileSlug(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [address, isConnected]);
+
+  const profileHref = address
+    ? `/profile/${encodeURIComponent(publicProfileSlug ?? address.toLowerCase())}`
+    : "/dashboard/donor";
+
   return (
     <Dropdown
       content={
         <div className="flex flex-col min-w-[220px] rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] py-2 shadow-xl dark:bg-[var(--ui-surface)]">
+          {address ? (
+            <>
+              <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
+                Profile
+              </div>
+              <MenuItem
+                as={Link}
+                href={profileHref}
+                value="profile"
+                className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <Icon name="account" size="m" className="text-[var(--ui-muted)]" /> My profile
+              </MenuItem>
+              {orgs.length > 0 ? (
+                <>
+                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
+                    Organization pages
+                  </div>
+                  {orgs.map((o) => (
+                    <MenuItem
+                      key={o.id}
+                      as={Link}
+                      href={`/organizations/${o.id}`}
+                      value={`org-${o.id}`}
+                      className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      <Icon name="peopleGroup" size="m" className="text-[var(--ui-muted)]" />
+                      <span className="min-w-0 truncate">{o.name}</span>
+                    </MenuItem>
+                  ))}
+                </>
+              ) : null}
+              <div className="my-1 h-px w-full bg-[var(--ui-border)]" />
+            </>
+          ) : null}
           <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
             Dashboards
           </div>
@@ -109,6 +196,7 @@ function ProfileMenu() {
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const cdpConfigured = Boolean(getCdpWalletConfig());
 
   // Hide SiteHeader on dashboard routes to allow full-height sidebar
   if (pathname?.startsWith("/dashboard")) {
@@ -146,7 +234,30 @@ export function SiteHeader() {
             ))}
           </nav>
 
-          <div className="header-actions amini-header-wallet shrink-0">
+          <div className="header-actions amini-header-wallet flex shrink-0 items-center gap-1">
+            <Dropdown
+              content={
+                <div className="flex min-w-[240px] flex-col rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] py-3 shadow-xl dark:bg-[var(--ui-surface)]">
+                  <p className="px-4 text-sm text-[var(--ui-muted)]">No notifications yet.</p>
+                </div>
+              }
+              contentPosition={{ placement: "bottom-end", gap: 8 }}
+            >
+              <button
+                type="button"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] text-[var(--ui-text)] transition-colors hover:bg-black/5 focus:outline-none dark:hover:bg-white/5"
+                aria-label="Notifications"
+              >
+                <Bell className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
+              </button>
+            </Dropdown>
+            <Link
+              href="/messages"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] text-[var(--ui-text)] transition-colors hover:bg-black/5 focus-brand dark:hover:bg-white/5"
+              aria-label="Messages"
+            >
+              <MessageCircle className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
+            </Link>
             <ThemeToggle />
             {cdpConfigured ? (
               <div

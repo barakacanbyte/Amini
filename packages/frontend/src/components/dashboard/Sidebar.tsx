@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Icon } from "@coinbase/cds-web/icons";
 import Image from "next/image";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -15,10 +16,36 @@ interface SidebarProps {
   onRoleChange: (role: DashboardRole) => void;
 }
 
+type OrgNavRow = { id: string; name: string; status: string };
+
 export function Sidebar({ role, onRoleChange }: SidebarProps) {
   const pathname = usePathname();
-  const { address } = useAminiSigning();
+  const { address, isConnected } = useAminiSigning();
   const { mounted } = useAppTheme();
+  const [myOrgs, setMyOrgs] = useState<OrgNavRow[]>([]);
+
+  const showOrgProfilesNav = role === "donor" || role === "organization";
+
+  useEffect(() => {
+    if (!address || !isConnected || !showOrgProfilesNav) {
+      setMyOrgs([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/organizations?wallet=${encodeURIComponent(address)}&list=1`)
+      .then((r) => r.json())
+      .then((j: { ok?: boolean; organizations?: OrgNavRow[] }) => {
+        if (cancelled) return;
+        if (j.ok && Array.isArray(j.organizations)) setMyOrgs(j.organizations);
+        else setMyOrgs([]);
+      })
+      .catch(() => {
+        if (!cancelled) setMyOrgs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [address, isConnected, showOrgProfilesNav]);
 
   const navItems = {
     donor: [
@@ -77,6 +104,61 @@ export function Sidebar({ role, onRoleChange }: SidebarProps) {
             </p>
           </div>
         </div>
+
+        {showOrgProfilesNav && address && isConnected ? (
+          <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
+              Organization profiles
+            </p>
+            <p className="mt-1 text-[11px] leading-snug text-[var(--ui-muted)]">
+              Public page, posts, and shareable link for each org you registered.
+            </p>
+            {myOrgs.length === 0 ? (
+              <Link
+                href="/organizations/register"
+                className="mt-2 flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-[var(--ui-brand-green)] hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                <Icon name="add" size="s" />
+                Register organization
+              </Link>
+            ) : (
+              <ul className="mt-2 space-y-0.5">
+                {myOrgs.map((o) => {
+                  const orgHref = `/organizations/${o.id}`;
+                  const active = pathname === orgHref;
+                  return (
+                    <li key={o.id}>
+                      <Link
+                        href={orgHref}
+                        className={`flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${
+                          active
+                            ? "bg-[var(--ui-brand-green)]/15 text-[var(--ui-text)]"
+                            : "text-[var(--ui-muted)] hover:bg-black/5 hover:text-[var(--ui-text)] dark:hover:bg-white/5"
+                        }`}
+                      >
+                        <Icon name="peopleGroup" size="s" className="shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">{o.name}</span>
+                        {o.status !== "approved" ? (
+                          <span className="shrink-0 text-[10px] uppercase text-[var(--ui-muted)]">
+                            {o.status}
+                          </span>
+                        ) : null}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {myOrgs.length > 0 ? (
+              <Link
+                href="/organizations/register"
+                className="mt-1 block rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--ui-brand-green)] hover:bg-black/5 dark:hover:bg-white/5"
+              >
+                + Register another organization
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-2">

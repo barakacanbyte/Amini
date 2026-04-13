@@ -29,6 +29,9 @@ export const aminiCdsTheme: ThemeConfig = {
   id: "amini-cds",
   lightColor: {
     ...defaultTheme.lightColor,
+    /** Match app `:root` `--ui-text` / `--ui-muted` so NativeInput/TextInput stay readable on Amini surfaces. */
+    fg: "rgb(44, 44, 44)",
+    fgMuted: "rgb(90, 81, 72)",
     fgPrimary: emerald.fgLight,
     bgPrimary: emerald.primary,
     bgPrimaryWash: emerald.washLight,
@@ -39,6 +42,8 @@ export const aminiCdsTheme: ThemeConfig = {
   },
   darkColor: {
     ...defaultTheme.darkColor,
+    fg: "rgb(253, 250, 246)",
+    fgMuted: "rgb(168, 156, 142)",
     fgPrimary: emerald.fgDark,
     bgPrimary: emerald.primary,
     bgPrimaryWash: emerald.washDark,

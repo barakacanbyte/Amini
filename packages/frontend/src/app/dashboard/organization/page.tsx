@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import Link from "next/link";
 import { Icon } from "@coinbase/cds-web/icons";
+import { useAminiSigning } from "@/context/AminiSigningContext";
 
 // Types
 interface OrgStats {
@@ -51,10 +52,33 @@ const DUMMY_CAMPAIGNS: OrgCampaign[] = [
   }
 ];
 
+type OrgListRow = { id: string; name: string; status: string };
+
 export default function OrganizationDashboard() {
+  const { address, isConnected } = useAminiSigning();
   const [stats, setStats] = useState<OrgStats | null>(null);
   const [campaigns, setCampaigns] = useState<OrgCampaign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [myOrgs, setMyOrgs] = useState<OrgListRow[]>([]);
+
+  useEffect(() => {
+    if (!address || !isConnected) {
+      setMyOrgs([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/organizations?wallet=${encodeURIComponent(address)}&list=1`)
+      .then((r) => r.json())
+      .then((j: { ok?: boolean; organizations?: OrgListRow[] }) => {
+        if (!cancelled && j.ok && Array.isArray(j.organizations)) setMyOrgs(j.organizations);
+      })
+      .catch(() => {
+        if (!cancelled) setMyOrgs([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [address, isConnected]);
 
   useEffect(() => {
     // Simulate fetching data from Supabase/API
@@ -94,7 +118,7 @@ export default function OrganizationDashboard() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-2">
           <h1 className="text-4xl font-bold tracking-tight text-[var(--ui-text)]">
             Organization <span className="brand-brown">Dashboard</span>
@@ -103,16 +127,96 @@ export default function OrganizationDashboard() {
             Manage your active campaigns, track disbursements, and attest to milestones.
           </p>
         </div>
-        <Button 
-          as={Link}
-          href="/campaigns/create" 
-          variant="primary"
-          className="inline-flex items-center justify-center gap-2"
-        >
-          <Icon name="add" size="m" />
-          Create Campaign
-        </Button>
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            {address ? (
+              <Button
+                as={Link}
+                href={`/profile/${address.toLowerCase()}`}
+                variant="secondary"
+                className="inline-flex items-center justify-center gap-2"
+              >
+                <Icon name="account" size="m" />
+                My profile
+              </Button>
+            ) : null}
+          </div>
+          <Button
+            as={Link}
+            href="/campaigns/create"
+            variant="primary"
+            className="inline-flex items-center justify-center gap-2"
+          >
+            <Icon name="add" size="m" />
+            Create Campaign
+          </Button>
+        </div>
       </div>
+
+      {address && myOrgs.length > 0 ? (
+        <section
+          className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-[var(--ui-shadow-md)] sm:p-6"
+          aria-labelledby="org-public-profiles-heading"
+        >
+          <h2
+            id="org-public-profiles-heading"
+            className="text-lg font-bold tracking-tight text-[var(--ui-text)]"
+          >
+            Public organization {myOrgs.length === 1 ? "profile" : "profiles"}
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--ui-muted)]">
+            {myOrgs.length === 1
+              ? "Open your public page to edit branding, write posts, and share your link."
+              : "You have multiple organizations—each has its own public page, posts, and link. Pick the one you want to view or update."}
+          </p>
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+            {myOrgs.map((o) => (
+              <li key={o.id}>
+                <Link
+                  href={`/organizations/${o.id}`}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3 transition-colors hover:border-[var(--ui-brand-green)]/50"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Icon name="peopleGroup" size="m" className="shrink-0 text-[var(--ui-muted)]" />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-[var(--ui-text)]">{o.name}</span>
+                      <span className="text-xs text-[var(--ui-muted)]">Profile &amp; posts</span>
+                    </span>
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
+                      o.status === "approved"
+                        ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300"
+                        : o.status === "pending"
+                          ? "bg-amber-500/15 text-amber-900 dark:text-amber-200"
+                          : "bg-[var(--ui-surface-elev)] text-[var(--ui-muted)]"
+                    }`}
+                  >
+                    {o.status}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-4 border-t border-[var(--ui-border)] pt-4">
+            <Link
+              href="/organizations/register"
+              className="text-sm font-medium text-[var(--ui-brand-green)] hover:underline"
+            >
+              Register another organization
+            </Link>
+          </div>
+        </section>
+      ) : address && myOrgs.length === 0 ? (
+        <section className="rounded-2xl border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface-elev)]/60 p-5 sm:p-6">
+          <p className="text-sm text-[var(--ui-muted)]">
+            You have no registered organizations yet. Register to get a public profile page and post updates.
+          </p>
+          <Button as={Link} href="/organizations/register" variant="secondary" className="mt-3">
+            Register organization
+          </Button>
+        </section>
+      ) : null}
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-3">

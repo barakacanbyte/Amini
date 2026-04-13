@@ -151,6 +151,41 @@
     box-shadow: 0 0 0 2px var(--ui-focus-ring);
   }
 
+  /**
+   * CDS TextInput / NativeTextArea use color: var(--color-fg) on a transparent field.
+   * On Amini surfaces (--ui-surface-elev, etc.) token resolution can yield unreadable text in light mode.
+   * Wrap CDS form stacks with .readable-cds-fields to force app foreground tokens.
+   */
+  .amini-cds.light .readable-cds-fields input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(
+      [type="hidden"]
+    ):not([type="range"]):not([type="color"]),
+  .amini-cds.light .readable-cds-fields textarea {
+    color: var(--ui-text) !important;
+    -webkit-text-fill-color: var(--ui-text);
+    caret-color: var(--ui-brand-green);
+  }
+
+  .amini-cds.light .readable-cds-fields input::placeholder,
+  .amini-cds.light .readable-cds-fields textarea::placeholder {
+    color: var(--ui-muted) !important;
+    opacity: 1;
+  }
+
+  .amini-cds.dark .readable-cds-fields input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(
+      [type="hidden"]
+    ):not([type="range"]):not([type="color"]),
+  .amini-cds.dark .readable-cds-fields textarea {
+    color: var(--ui-text) !important;
+    -webkit-text-fill-color: var(--ui-text);
+    caret-color: var(--ui-brand-green);
+  }
+
+  .amini-cds.dark .readable-cds-fields input::placeholder,
+  .amini-cds.dark .readable-cds-fields textarea::placeholder {
+    color: var(--ui-muted) !important;
+    opacity: 1;
+  }
+
   /* Form inputs */
   .input-field {
     width: 100%;

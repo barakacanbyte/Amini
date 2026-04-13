@@ -43,9 +43,8 @@ amini/
 | **4** | Indexing & data | Supabase schema, indexer, fund flow data |
 | **5** | IPFS (Filebase) & impact | Post impact + receipts to IPFS, link to txs |
 | **6** | XMTP | Wallet-to-wallet messaging scoped to campaigns |
-| **7** | Superfluid | Optional streaming escrow/disbursement |
-| **8** | Reputation & Sybil | Worldcoin/EAS social + reputation scoring |
-| **9** | Polish & demo | Fund flow viz, QR donation links, explorer, branding |
+| **7** | Reputation & Sybil | Worldcoin/EAS social + reputation scoring |
+| **8** | Polish & demo | Fund flow viz, QR donation links, explorer, branding |
 
 ---
 
@@ -143,18 +142,7 @@ amini/
 
 ---
 
-## 10. Phase 7 — Superfluid streaming (optional)
-
-- [ ] **Design**: Either “streaming escrow” (funds stream from escrow to recipient over time) or “streaming donation” (donor streams to campaign). Align with “milestone-based streaming” in system prompt: stream rate can change or halt on milestone flag.
-- [ ] **Superfluid on Base**: Use Superfluid contracts on Base; create stream from escrow (or donor) to recipient; flow rate derived from milestone schedule or fixed rate.
-- [ ] **Integration**: Optional path in “Fund campaign”: “Lump sum” vs “Stream”; if Stream, create/start Superfluid stream and (if applicable) link to escrow/campaign in your indexer.
-- [ ] **Halt on dispute**: If milestone is flagged, stop or reduce stream (Superfluid APIs for stopping/updating stream); document behavior in UI.
-
-**Deliverable:** Optional per-campaign streaming disbursement with start/stop tied to milestones or disputes.
-
----
-
-## 11. Phase 8 — Reputation and Sybil resistance
+## 10. Phase 7 — Reputation and Sybil resistance
 
 - [ ] **Sybil layer**: Integrate Worldcoin World ID (or EAS social attestation) for “verified human” or “unique identity” before allowing reputation to count. Without this, do not expose “reputation score” as authoritative.
 - [ ] **Reputation model**: Reputation = f(attested milestones, role, time). Only EAS-attested milestone completions count; self-reported milestones do not. Store in Supabase: `reputation_scores` (wallet, score, attested_count, last_updated).
@@ -165,7 +153,7 @@ amini/
 
 ---
 
-## 12. Phase 9 — Polish and demo
+## 11. Phase 8 — Polish and demo
 
 - [ ] **Fund flow visualization**: Refine UI (e.g. Sankey or step diagram) from Supabase data; real-time feel (poll every 2–5s).
 - [ ] **QR donation links**: Per-campaign short link; QR code generation; link opens campaign page with “Fund” CTA pre-focused.
@@ -177,7 +165,7 @@ amini/
 
 ---
 
-## 13. Dependency order (summary)
+## 12. Dependency order (summary)
 
 ```
 Phase 0 (repo) 
@@ -187,17 +175,16 @@ Phase 0 (repo)
   → Phase 4 (indexing) — can start after 1
   → Phase 5 (IPFS / impact) — after 3
   → Phase 6 (XMTP) — after 3
-  → Phase 7 (Superfluid) — after 1, 3
-  → Phase 8 (Reputation) — after 2, 4
-  → Phase 9 (polish) — after 4–8
+  → Phase 7 (Reputation) — after 2, 4
+  → Phase 8 (polish) — after 4–7
 ```
 
 - **Critical path:** 0 → 1 → 2 → 3 (must work for “core demo”).
-- **Parallel after 3:** 4 (indexer), 5 (IPFS / impact), 6 (XMTP); then 7, 8, 9.
+- **Parallel after 3:** 4 (indexer), 5 (IPFS / impact), 6 (XMTP); then 7, 8.
 
 ---
 
-## 14. Environment variables (checklist)
+## 13. Environment variables (checklist)
 
 - `NEXT_PUBLIC_CHAIN_ID`, `NEXT_PUBLIC_RPC_URL`
 - `NEXT_PUBLIC_USDC_ADDRESS`, `NEXT_PUBLIC_ESCROW_ADDRESS`, `NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS`
@@ -205,12 +192,11 @@ Phase 0 (repo)
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (for indexer)
 - `FILEBASE_ACCESS_KEY` / `FILEBASE_SECRET_KEY` / `FILEBASE_BUCKET` (IPFS pinning)
 - XMTP env (per SDK docs)
-- Worldcoin / EAS social app ids and secrets (for Phase 8)
-- Superfluid host/subgraph URLs for Base (Phase 7)
+- Worldcoin / EAS social app ids and secrets (for Phase 7)
 
 ---
 
-## 15. Success criteria (full build)
+## 14. Success criteria (full build)
 
 - [ ] Wallet connect + USDC transfer on Base.
 - [ ] Campaign creation and escrow with milestone-based release.
@@ -218,7 +204,6 @@ Phase 0 (repo)
 - [ ] Fund flow visualization from Supabase; public explorer.
 - [ ] Impact posts and receipts on IPFS; linked to campaigns/txs.
 - [ ] XMTP messaging per campaign (in-app).
-- [ ] Optional Superfluid streaming path.
 - [ ] Reputation from EAS attestations with Sybil layer (Worldcoin or EAS social).
 - [ ] QR donation links and branding applied.
 - [ ] Demo script and “Architectural constraints” documented.

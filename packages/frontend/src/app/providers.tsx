@@ -1,25 +1,24 @@
 "use client";
 
+import "@/lib/ssrLocalStorageShim";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { base, baseSepolia } from "wagmi/chains";
-import { createConfig, http, WagmiProvider } from "wagmi";
-import { coinbaseWallet } from "wagmi/connectors";
-import { createCDPEmbeddedWalletConnector } from "@coinbase/cdp-wagmi";
+import { baseSepolia } from "wagmi/chains";
+import type { State } from "wagmi";
+import { WagmiProvider } from "wagmi";
 import { CDPReactProvider } from "@coinbase/cdp-react";
 import { OnchainKitProvider } from "@coinbase/onchainkit";
 import { CdsThemeBridge } from "@/components/CdsThemeBridge";
 import { MediaQueryProvider } from "@coinbase/cds-web/system";
 import { getCdpWalletConfig } from "@/lib/cdpWalletConfig";
 import { getPublicLogoUrl } from "@/lib/branding";
+import { getWagmiConfig } from "@/lib/wagmiAminiConfig";
 import { cdpEmbeddedWalletTheme } from "@/theme/cdpEmbeddedWalletTheme";
 import { AppThemeProvider } from "@/context/AppThemeContext";
-import { useEffect } from "react";
 import {
   AminiSigningProviderCdp,
   AminiSigningProviderWagmi,
 } from "@/context/AminiSigningContext";
 import type { ReactNode } from "react";
-import type { Chain } from "viem/chains";
 
 const queryClient = new QueryClient();
 
@@ -36,12 +35,11 @@ const baseSepoliaRpc =
   "https://sepolia.base.org";
 
 const cdpWalletConfig = getCdpWalletConfig();
-
 const defaultChain = baseSepolia;
-const chains: [Chain, ...Chain[]] = [baseSepolia, base];
+const wagmiConfig = getWagmiConfig();
 
 /**
- * Wallet strategy:
+ * Wallet strategy (connectors live in `@/lib/wagmiAminiConfig`):
  * - With `NEXT_PUBLIC_CDP_PROJECT_ID`: **CDP embedded wallet only** via `createCDPEmbeddedWalletConnector`
  *   + `CDPReactProvider` (`createOnLogin: "smart"`). No browser-extension Coinbase connector so login
  *   stays in the CDP embedded / passkey smart-wallet flow.
@@ -51,37 +49,6 @@ const chains: [Chain, ...Chain[]] = [baseSepolia, base];
  * `QueryClientProvider` → `CDPReactProvider`**. CDP React + `SignInModal` expect wagmi context outside
  * the CDP tree; nesting CDP above wagmi can break the auth button / modal.
  */
-type ConnectorEntry = ReturnType<typeof coinbaseWallet>;
-
-const connectors: ConnectorEntry[] = cdpWalletConfig
-  ? [
-      createCDPEmbeddedWalletConnector({
-        cdpConfig: cdpWalletConfig,
-        providerConfig: {
-          chains,
-          transports: {
-            [base.id]: http(baseRpc),
-            [baseSepolia.id]: http(baseSepoliaRpc),
-          },
-        },
-      }) as ConnectorEntry,
-    ]
-  : [
-      coinbaseWallet({
-        appName: "Amini",
-        preference: "smartWalletOnly",
-      }),
-    ];
-
-const wagmiConfig = createConfig({
-  chains,
-  connectors,
-  ssr: true,
-  transports: {
-    [base.id]: http(baseRpc),
-    [baseSepolia.id]: http(baseSepoliaRpc),
-  },
-});
 
 function OnchainKitProviders({ children }: { children: ReactNode }) {
   const apiKey = process.env.NEXT_PUBLIC_CDP_API_KEY;
@@ -124,44 +91,19 @@ function CdpOptionalShell({ children }: { children: ReactNode }) {
   );
 }
 
-export function Providers({ children }: { children: ReactNode }) {
-  // Avoid noisy React runtime warnings coming from third-party UI libraries.
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "development") return;
-
-    const needle = "React does not recognize the `testID` prop on a DOM element";
-    const originalError = console.error;
-    const originalWarn = console.warn;
-
-    const filtered = (...args: unknown[]) => {
-      const first = typeof args?.[0] === "string" ? args[0] : "";
-      if (first.includes(needle)) return;
-      return originalError(...args);
-    };
-
-    const filteredWarn = (...args: unknown[]) => {
-      const first = typeof args?.[0] === "string" ? args[0] : "";
-      if (first.includes(needle)) return;
-      return originalWarn(...args);
-    };
-
-    // React uses console.error for this particular warning.
-    // eslint-disable-next-line no-console
-    console.error = filtered;
-    // eslint-disable-next-line no-console
-    console.warn = filteredWarn;
-
-    return () => {
-      console.error = originalError;
-      console.warn = originalWarn;
-    };
-  }, []);
-
+export function Providers({
+  children,
+  initialState,
+}: {
+  children: ReactNode;
+  /** From `cookieToInitialState` in `layout.tsx` — avoids SSR `localStorage` for Wagmi. */
+  initialState?: State;
+}) {
   return (
     <AppThemeProvider>
       <MediaQueryProvider>
         <CdsThemeBridge>
-          <WagmiProvider config={wagmiConfig}>
+          <WagmiProvider config={wagmiConfig} initialState={initialState}>
             <QueryClientProvider client={queryClient}>
               <CdpOptionalShell>
                 <OnchainKitProviders>{children}</OnchainKitProviders>

@@ -305,7 +305,7 @@ export default function RegisterOrganizationPage() {
                 </div>
 
                 {/* Description */}
-                <div className="mb-6">
+                <div className="readable-cds-fields mb-6">
                   <div className="flex items-center justify-between mb-2">
                     <label className="font-medium app-text text-sm">Description</label>
                     <span className="app-muted font-normal text-xs">(recommended)</span>

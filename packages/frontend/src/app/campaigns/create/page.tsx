@@ -95,7 +95,6 @@ type DraftData = {
   tags: string[];
   milestones: { title: string; description: string; amount: string }[];
   attestationService: string;
-  superfluidEnabled: boolean;
   permanentStorage: boolean;
   currentStep: number;
 };
@@ -104,8 +103,9 @@ type DraftData = {
 type DraftPayload = DraftData & { imagePreview?: string | null };
 
 function loadLegacyDraft(): (DraftPayload & { savedAt?: string }) | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(LEGACY_DRAFT_KEY);
+    const raw = window.localStorage.getItem(LEGACY_DRAFT_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as DraftPayload & { savedAt?: string };
   } catch {
@@ -114,8 +114,9 @@ function loadLegacyDraft(): (DraftPayload & { savedAt?: string }) | null {
 }
 
 function clearLegacyDraft() {
+  if (typeof window === "undefined") return;
   try {
-    localStorage.removeItem(LEGACY_DRAFT_KEY);
+    window.localStorage.removeItem(LEGACY_DRAFT_KEY);
   } catch {
     /* ignore */
   }
@@ -152,7 +153,6 @@ export default function CreateCampaignPage() {
 
   /* ---- Verification & Smart Escrow state ---- */
   const [attestationService, setAttestationService] = useState("");
-  const [superfluidEnabled, setSuperfluidEnabled] = useState(false);
   const [permanentStorage, setPermanentStorage] = useState(true);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
@@ -166,6 +166,7 @@ export default function CreateCampaignPage() {
   const [metadataUri, setMetadataUri] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [resolvedCampaignId, setResolvedCampaignId] = useState<number | undefined>(undefined);
   const [savedToDb, setSavedToDb] = useState(false);
   const [showDraftToast, setShowDraftToast] = useState(false);
   const [pendingUserOperationHash, setPendingUserOperationHash] = useState<`0x${string}` | null>(null);
@@ -227,7 +228,6 @@ export default function CreateCampaignPage() {
       setMilestones(draft.milestones);
     }
     if (typeof draft.attestationService === "string") setAttestationService(draft.attestationService);
-    if (typeof draft.superfluidEnabled === "boolean") setSuperfluidEnabled(draft.superfluidEnabled);
     if (typeof draft.permanentStorage === "boolean") setPermanentStorage(draft.permanentStorage);
     if (
       typeof draft.currentStep === "number" &&
@@ -355,10 +355,10 @@ export default function CreateCampaignPage() {
   const getDraftData = useCallback((): DraftData => ({
     title, description, beneficiaryDescription, contactEmail, socialLinks, impactMetrics,
     targetAmount, deadline, region, stateLoc, tags,
-    milestones, attestationService, superfluidEnabled, permanentStorage, currentStep,
+    milestones, attestationService, permanentStorage, currentStep,
   }), [title, description, beneficiaryDescription, contactEmail, socialLinks, impactMetrics,
     targetAmount, deadline, region, stateLoc, tags,
-    milestones, attestationService, superfluidEnabled, permanentStorage, currentStep]);
+    milestones, attestationService, permanentStorage, currentStep]);
 
   const buildDraftPayload = useCallback(
     (override: Partial<DraftPayload> = {}): DraftPayload => {
@@ -456,6 +456,12 @@ export default function CreateCampaignPage() {
     }
     return undefined;
   }, [receiptCreate]);
+
+  useEffect(() => {
+    if (createdCampaignId !== undefined) {
+      setResolvedCampaignId(createdCampaignId);
+    }
+  }, [createdCampaignId]);
 
   function extractCampaignIdFromReceipt(receipt: any) {
     if (!receipt.logs?.length) return undefined;
@@ -563,6 +569,7 @@ export default function CreateCampaignPage() {
       return;
     }
 
+    setResolvedCampaignId(campaignId);
     await saveCampaignToDb(campaignId, receipt, ownerAddress);
   }
 
@@ -1025,7 +1032,7 @@ export default function CreateCampaignPage() {
                   setTitle(""); setDescription(""); setBeneficiaryDescription(""); setContactEmail("");
                   setSocialLinks([]); setImpactMetrics([]); setTargetAmount(""); setDeadline("");
                   setRegion(""); setStateLoc(""); setTags([]); setMilestones([{ ...EMPTY_MILESTONE }]);
-                  setAttestationService(""); setSuperfluidEnabled(false); setPermanentStorage(true);
+                  setAttestationService("");
                 }}
               >
                 Your previously saved campaign draft has been loaded. Dismiss to start fresh.
@@ -1173,11 +1180,11 @@ export default function CreateCampaignPage() {
             )}
 
             {/* ---- Success ---- */}
-            {submitStep === "done" && createdCampaignId !== undefined && (
+            {submitStep === "done" && resolvedCampaignId !== undefined && (
               <div className="campaign-card mb-6">
                 <div className="mb-4 flex items-center gap-2">
                   <Icon name="circleCheckmark" size="l" className="text-[var(--ui-brand-green)]" />
-                  <Tag colorScheme="green" emphasis="high">Campaign #{createdCampaignId} created!</Tag>
+                  <Tag colorScheme="green" emphasis="high">Campaign #{resolvedCampaignId} created!</Tag>
                 </div>
                 {savedToDb && (
                   <TextCaption as="p" className="app-muted mb-3">Campaign saved. You can now enable funding.</TextCaption>
@@ -1195,7 +1202,7 @@ export default function CreateCampaignPage() {
                   ) : (
                     <Tag colorScheme="green" emphasis="high" start={<Icon name="circleCheckmark" size="xs" />}>Funding enabled</Tag>
                   )}
-                  <Button as={Link} href={"/campaigns/" + createdCampaignId} variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2">
+                  <Button as={Link} href={"/campaigns/" + resolvedCampaignId} variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2">
                     View campaign <Icon name="arrowRight" size="s" className="inline" />
                   </Button>
                   <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" onClick={resetForm}>Create another</Button>
@@ -1781,6 +1788,7 @@ export default function CreateCampaignPage() {
                     </Button>
                   </div>
                 </div>
+
               </div>
             )}
 
@@ -1791,33 +1799,18 @@ export default function CreateCampaignPage() {
               <div className="wizard-step-content">
                 <div className="campaign-card">
                   <div className="campaign-card-header">
-                    <h2 className="campaign-card-title">Verification & Smart Escrow</h2>
+                    <h2 className="campaign-card-title">Verification & Escrow</h2>
                     <TextCaption as="span" className="app-muted">Step 4 of 5</TextCaption>
                   </div>
                   <TextBody as="p" className="app-muted mb-6 text-sm">
                     Configure attestation requirements and payment options.
                   </TextBody>
-                  {/* Attestation Service */}
+
                   <div className="campaign-field">
                     <label className="campaign-label">Attestation Service</label>
                     <select value={attestationService} onChange={(e) => setAttestationService(e.target.value)} className="campaign-select">
                       {VALIDATORS.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
                     </select>
-                  </div>
-
-                  {/* Toggle: Superfluid */}
-                  <div className="campaign-toggle-row">
-                    <div className="campaign-toggle-info">
-                      <span className="campaign-toggle-icon campaign-toggle-icon-purple"><Icon name="lightning" size="xs" /></span>
-                      <div>
-                        <span className="campaign-toggle-text">Superfluid Streaming Payments</span>
-                        <p className="campaign-toggle-subtext">Enable real-time streaming of funds</p>
-                      </div>
-                    </div>
-                    <label className="campaign-toggle">
-                      <input type="checkbox" checked={superfluidEnabled} onChange={(e) => setSuperfluidEnabled(e.target.checked)} />
-                      <span className="campaign-toggle-slider"></span>
-                    </label>
                   </div>
 
                   {/* Toggle: Permanent Storage */}
@@ -1834,20 +1827,19 @@ export default function CreateCampaignPage() {
                       <span className="campaign-toggle-slider"></span>
                     </label>
                   </div>
-                </div>
 
-                {/* Navigation */}
-                <div className="wizard-nav">
-                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
-                    Back
-                  </Button>
-                  <div className="flex gap-3">
-                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
-                      Save Draft
+                  <div className="wizard-nav">
+                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
+                      Back
                     </Button>
-                    <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext} disabled={!step3Valid}>
-                      Continue
-                    </Button>
+                    <div className="flex gap-3">
+                      <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
+                        Save Draft
+                      </Button>
+                      <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext} disabled={!step3Valid}>
+                        Continue
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1973,9 +1965,8 @@ export default function CreateCampaignPage() {
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {superfluidEnabled && <Tag colorScheme="blue" emphasis="low" start={<Icon name="lightning" size="xs" />}>Superfluid</Tag>}
                       {permanentStorage && <Tag colorScheme="green" emphasis="low" start={<Icon name="folder" size="xs" />}>IPFS Storage</Tag>}
-                      {!superfluidEnabled && !permanentStorage && (
+                      {!permanentStorage && (
                         <TextCaption as="span" className="app-muted">No optional features enabled</TextCaption>
                       )}
                     </div>
@@ -2089,7 +2080,7 @@ export default function CreateCampaignPage() {
               </div>
             )}
 
-            {submitStep !== "done" && createdCampaignId !== undefined && (
+            {submitStep !== "done" && resolvedCampaignId !== undefined && (
               <div className="mt-6 rounded-xl border-2 border-[var(--ui-brand-green)] bg-[var(--ui-brand-green)]/5 p-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex items-start gap-4">
                   <div className="bg-[var(--ui-brand-green)] p-2 rounded-full text-white">
@@ -2104,8 +2095,8 @@ export default function CreateCampaignPage() {
                   <Button
                     variant="primary"
                     onClick={() => {
-                      if (createdCampaignId !== undefined && receiptCreate && address) {
-                        void saveCampaignToDb(createdCampaignId, receiptCreate, address);
+                      if (resolvedCampaignId !== undefined && receiptCreate && address) {
+                        void saveCampaignToDb(resolvedCampaignId, receiptCreate, address);
                       }
                     }}
                     disabled={submitStep === "saving"}
@@ -2125,7 +2116,7 @@ export default function CreateCampaignPage() {
                 </div>
                 <h3 className="text-xl font-bold text-[var(--ui-brand-green)]">Congratulations!</h3>
                 <p className="app-text mt-2 mb-6">Your campaign is fully registered and visible to everyone.</p>
-                <Button variant="primary" as={Link} href={`/campaigns/${createdCampaignId}`} className="w-full">
+                <Button variant="primary" as={Link} href={`/campaigns/${resolvedCampaignId}`} className="w-full">
                   Go to Campaign Page
                 </Button>
               </div>

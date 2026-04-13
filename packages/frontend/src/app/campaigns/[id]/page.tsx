@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import {
   useReadContract,
@@ -13,6 +14,8 @@ import { useAminiSigning } from "@/context/AminiSigningContext";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { TextTitle2 } from "@coinbase/cds-web/typography/TextTitle2";
 import { TextBody } from "@coinbase/cds-web/typography/TextBody";
+import { TextCaption } from "@coinbase/cds-web/typography/TextCaption";
+import { TextHeadline } from "@coinbase/cds-web/typography/TextHeadline";
 import { Tag } from "@coinbase/cds-web/tag/Tag";
 import { Spinner } from "@coinbase/cds-web/loaders/Spinner";
 import {
@@ -22,6 +25,7 @@ import {
   formatUsdc,
   parseUsdc,
 } from "@/lib/contracts";
+import { BASE_SEPOLIA_CHAIN_ID } from "@amini/shared";
 import {
   initXmtpClient,
   loadCampaignThreadMessages,
@@ -33,6 +37,7 @@ import {
   type IDKitResult,
   type RpContext,
 } from "@worldcoin/idkit";
+import { CampaignMessagesBubble } from "@/components/CampaignMessagesBubble";
 
 const ERC20_APPROVE_ABI = [
   {
@@ -47,6 +52,148 @@ const ERC20_APPROVE_ABI = [
   },
 ] as const;
 
+const TX_EXPLORER_BASE =
+  config.chainId === BASE_SEPOLIA_CHAIN_ID
+    ? "https://sepolia.basescan.org/tx/"
+    : "https://basescan.org/tx/";
+
+type CampaignFromApi = {
+  id: number;
+  /** On-chain campaign id matches this row’s `id` (indexer). */
+  chain_id?: number | null;
+  owner?: string | null;
+  beneficiary?: string | null;
+  /** USDC 6-decimal raw amount as string (matches indexer). */
+  target_amount?: string | number | null;
+  milestone_count?: number | null;
+  metadata_uri?: string | null;
+  title?: string | null;
+  description?: string | null;
+  image_url?: string | null;
+  region?: string | null;
+  cause?: string | null;
+  deadline?: string | null;
+  contact_email?: string | null;
+  beneficiary_description?: string | null;
+  tags?: string[] | null;
+  milestone_data?: unknown;
+  social_links?: unknown;
+  impact_metrics?: unknown;
+  status?: string | null;
+  organization_id?: string | null;
+};
+
+type OrganizationFromApi = {
+  id: string;
+  name: string;
+  description?: string | null;
+  website_url?: string | null;
+  country?: string | null;
+  status?: string;
+  logo_url?: string | null;
+  verified_at?: string | null;
+  official_email?: string | null;
+  twitter_handle?: string | null;
+  linkedin_url?: string | null;
+};
+
+type ImpactMetricRow = { name?: string; target?: string; timeframe?: string };
+
+function parseSocialLinks(raw: unknown): Array<{ label: string; url: string }> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ label: string; url: string }> = [];
+  for (const item of raw) {
+    if (item && typeof item === "object" && "url" in item) {
+      const url = String((item as { url?: string }).url ?? "").trim();
+      const label = String((item as { label?: string }).label ?? "").trim() || "Link";
+      if (url) out.push({ label, url });
+    }
+  }
+  return out;
+}
+
+function parseTargetAmountFromDb(raw: string | number | null | undefined): bigint {
+  if (raw == null) return BigInt(0);
+  const s = String(raw).replace(/,/g, "").trim();
+  if (!s) return BigInt(0);
+  const whole = s.split(".")[0] ?? "0";
+  if (!/^-?\d+$/.test(whole)) return BigInt(0);
+  return BigInt(whole);
+}
+
+function isHexAddress(v: string | null | undefined): v is `0x${string}` {
+  return typeof v === "string" && /^0x[a-fA-F0-9]{40}$/.test(v);
+}
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+function hintForMessagingInitFailure(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("reject") ||
+    lower.includes("denied") ||
+    lower.includes("user rejected")
+  ) {
+    return "Signature cancelled. Approve the request in your wallet to enable chat.";
+  }
+  if (lower.includes("no wallet") || lower.includes("account")) {
+    return "Connect your wallet and try again.";
+  }
+  return "Could not start chat. Try again in a moment.";
+}
+
+function hintForMessagingSendFailure(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("reject") ||
+    lower.includes("denied") ||
+    lower.includes("user rejected")
+  ) {
+    return "Signature cancelled.";
+  }
+  return "Could not send your message. Try again.";
+}
+
+type CampaignCommentRow = {
+  id: number;
+  parent_id: number | null;
+  author_wallet: string;
+  body: string;
+  created_at: string;
+};
+
+function buildCommentThreads(comments: CampaignCommentRow[]) {
+  const byParent = new Map<number | null, CampaignCommentRow[]>();
+  for (const row of comments) {
+    const p = row.parent_id ?? null;
+    const list = byParent.get(p) ?? [];
+    list.push(row);
+    byParent.set(p, list);
+  }
+  const roots = byParent.get(null) ?? [];
+  roots.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return roots.map((root) => {
+    const replies = (byParent.get(root.id) ?? []).slice();
+    replies.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    return { root, replies };
+  });
+}
+
+function parseImpactMetrics(raw: unknown): ImpactMetricRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((m) => {
+      if (!m || typeof m !== "object") return null;
+      const o = m as Record<string, unknown>;
+      return {
+        name: typeof o.name === "string" ? o.name : undefined,
+        target: typeof o.target === "string" ? o.target : undefined,
+        timeframe: typeof o.timeframe === "string" ? o.timeframe : undefined,
+      };
+    })
+    .filter(Boolean) as ImpactMetricRow[];
+}
+
 export default function CampaignPage() {
   const params = useParams();
   const id = params.id as string;
@@ -57,21 +204,29 @@ export default function CampaignPage() {
 
   const registryAddress = config.campaignRegistry;
   const escrowAddress = config.escrow;
+  const contractsConfigured = Boolean(
+    registryAddress &&
+      escrowAddress &&
+      registryAddress.startsWith("0x") &&
+      escrowAddress.startsWith("0x"),
+  );
 
   const { data: campaign, isLoading: loadingCampaign } = useReadContract({
-    address: registryAddress,
+    address: registryAddress ?? "0x0000000000000000000000000000000000000000",
     abi: campaignRegistryAbi,
     functionName: "getCampaign",
     args: [campaignId],
     chainId: config.chainId,
+    query: { enabled: contractsConfigured },
   });
 
   const { data: escrowState } = useReadContract({
-    address: escrowAddress,
+    address: escrowAddress ?? "0x0000000000000000000000000000000000000000",
     abi: milestoneEscrowAbi,
     functionName: "getEscrowState",
     args: [campaignId],
     chainId: config.chainId,
+    query: { enabled: contractsConfigured },
   });
 
   const [fundAmount, setFundAmount] = useState("");
@@ -121,7 +276,7 @@ export default function CampaignPage() {
   const [worldIdConfigReady, setWorldIdConfigReady] = useState<boolean | null>(null);
   const [worldIdMissingConfig, setWorldIdMissingConfig] = useState<string[]>([]);
   const [reputationRefreshNonce, setReputationRefreshNonce] = useState(0);
-  const [xmtpStatus, setXmtpStatus] = useState<string>("Not initialized");
+  const [xmtpStatus, setXmtpStatus] = useState<string>("");
   const [xmtpReady, setXmtpReady] = useState(false);
   const [xmtpDraft, setXmtpDraft] = useState("");
   const [xmtpInboxId, setXmtpInboxId] = useState<string | null>(null);
@@ -129,6 +284,13 @@ export default function CampaignPage() {
   const [xmtpMessages, setXmtpMessages] = useState<
     Array<{ id: string; senderInboxId: string; text: string; sentAt: string }>
   >([]);
+  const [xmtpPanelOpen, setXmtpPanelOpen] = useState(false);
+  const [comments, setComments] = useState<CampaignCommentRow[]>([]);
+  const [commentBody, setCommentBody] = useState("");
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [replyToId, setReplyToId] = useState<number | null>(null);
+  const [dbCampaign, setDbCampaign] = useState<CampaignFromApi | null>(null);
+  const [dbOrganization, setDbOrganization] = useState<OrganizationFromApi | null>(null);
   const { writeContract: writeApprove, data: txApprove, isPending: isPendingApprove } = useWriteContract();
   const { isLoading: isConfirmingApprove } = useWaitForTransactionReceipt({ hash: txApprove });
   const { writeContract: writeDeposit, data: txDeposit, isPending: isPendingDeposit } = useWriteContract();
@@ -138,43 +300,119 @@ export default function CampaignPage() {
 
   type CampaignTuple = readonly [owner: `0x${string}`, beneficiary: `0x${string}`, targetAmount: bigint, milestoneCount: number, metadataUri: string, exists: boolean];
   const c = campaign as CampaignTuple | undefined;
-  const isOwner = address && c && c[0].toLowerCase() === address.toLowerCase();
-  const isBeneficiary = address && c && c[1].toLowerCase() === address.toLowerCase();
+  const ownerAddr = c?.[0];
+  const beneficiaryAddrOnChain = c?.[1];
+  const dbOwner = dbCampaign?.owner;
+  const dbBeneficiary = dbCampaign?.beneficiary;
+  const isOwner = Boolean(
+    address &&
+      ((ownerAddr && ownerAddr.toLowerCase() === address.toLowerCase()) ||
+        (isHexAddress(dbOwner) && dbOwner.toLowerCase() === address.toLowerCase())),
+  );
+  const isBeneficiary = Boolean(
+    address &&
+      ((beneficiaryAddrOnChain &&
+        beneficiaryAddrOnChain.toLowerCase() === address.toLowerCase()) ||
+        (isHexAddress(dbBeneficiary) && dbBeneficiary.toLowerCase() === address.toLowerCase())),
+  );
   const approveConfirmed = txApprove && !isConfirmingApprove;
 
-  useEffect(() => {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !anon || !id) return;
-    const headers: HeadersInit = {
-      apikey: anon,
-      Authorization: `Bearer ${anon}`,
-    };
+  const xmtpPeerAddress = useMemo(() => {
+    if (c && c[5] && c[0] && c[1]) {
+      const [oa, ba] = c;
+      if (!address) return ba;
+      return address.toLowerCase() === ba.toLowerCase() ? oa : ba;
+    }
+    const o = dbCampaign?.owner;
+    const b = dbCampaign?.beneficiary;
+    if (isHexAddress(o) && isHexAddress(b)) {
+      if (!address) return b;
+      return address.toLowerCase() === b.toLowerCase() ? o : b;
+    }
+    return ZERO_ADDRESS;
+  }, [address, c, dbCampaign?.owner, dbCampaign?.beneficiary]);
 
-    async function loadFlow() {
+  const messagingInitPromiseRef = useRef<Promise<boolean> | null>(null);
+
+  const ensureMessagingClient = useCallback(async (): Promise<boolean> => {
+    if (xmtpReady) return true;
+    if (!walletClient?.account?.address) return false;
+    if (messagingInitPromiseRef.current) {
+      return messagingInitPromiseRef.current;
+    }
+    const wc = walletClient;
+    const env = (process.env.NEXT_PUBLIC_XMTP_ENV ?? "dev") as "dev" | "production";
+    const p = (async () => {
+      const result = await initXmtpClient(wc, env);
+      setXmtpReady(result.ok);
+      setXmtpInboxId(result.inboxId ?? null);
+      if (!result.ok) {
+        setXmtpStatus(hintForMessagingInitFailure(result.message));
+      } else {
+        setXmtpStatus("");
+      }
+      return result.ok;
+    })().finally(() => {
+      messagingInitPromiseRef.current = null;
+    });
+    messagingInitPromiseRef.current = p;
+    return p;
+  }, [walletClient, xmtpReady]);
+
+  const getXmtpBindingAuth = useCallback(async () => {
+    if (!address) return null;
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const message = `Amini Verification\nAction: Register XMTP Thread Binding\nWallet: ${address.toLowerCase()}\nTimestamp: ${timestamp}`;
+    const cdpToken = await getCdpAccessToken();
+    let signature = "";
+    if (!cdpToken) {
       try {
-        const depRes = await fetch(
-          `${supabaseUrl}/rest/v1/escrow_deposits?select=tx_hash,depositor,amount,block_number,created_at&campaign_id=eq.${id}&order=id.desc&limit=100`,
-          { headers, cache: "no-store" }
-        );
-        const relRes = await fetch(
-          `${supabaseUrl}/rest/v1/milestone_releases?select=tx_hash,milestone_index,amount,attestation_uid,block_number,created_at&campaign_id=eq.${id}&order=id.desc&limit=100`,
-          { headers, cache: "no-store" }
-        );
-        const impactRes = await fetch(
-          `${supabaseUrl}/rest/v1/impact_posts?select=id,milestone_index,author_wallet,body,ipfs_cid,ipfs_url,attachment_cid,attachment_url,attachment_name,attachment_content_type,tx_hash_link,created_at&campaign_id=eq.${id}&order=id.desc&limit=100`,
-          { headers, cache: "no-store" }
-        );
-        if (depRes.ok) {
-          const dep = (await depRes.json()) as Array<{ tx_hash: string; depositor: string; amount: string; block_number: number; created_at: string }>;
-          setDeposits(dep);
-        }
-        if (relRes.ok) {
-          const rel = (await relRes.json()) as Array<{ tx_hash: string; milestone_index: number; amount: string; attestation_uid: string | null; block_number: number; created_at: string }>;
-          setReleases(rel);
-        }
-        if (impactRes.ok) {
-          const impact = (await impactRes.json()) as Array<{
+        signature = await signMessageAsync({ message });
+      } catch {
+        return null;
+      }
+    } else {
+      try {
+        signature = await signMessageAsync({ message });
+      } catch {
+        /* CDP may still verify via token */
+      }
+    }
+    return {
+      viewerWallet: address,
+      signature: signature || undefined,
+      signatureTimestamp: timestamp,
+      cdpAccessToken: cdpToken ?? undefined,
+    };
+  }, [address, getCdpAccessToken, signMessageAsync]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+
+    async function loadIndexedAndMeta() {
+      try {
+        const res = await fetch(`/api/campaigns/${id}`, { cache: "no-store" });
+        const json = (await res.json()) as {
+          ok: boolean;
+          campaign?: CampaignFromApi | null;
+          organization?: OrganizationFromApi | null;
+          deposits?: Array<{
+            tx_hash: string;
+            depositor: string;
+            amount: string;
+            block_number: number;
+            created_at: string;
+          }>;
+          releases?: Array<{
+            tx_hash: string;
+            milestone_index: number;
+            amount: string;
+            attestation_uid: string | null;
+            block_number: number;
+            created_at: string;
+          }>;
+          impactPosts?: Array<{
             id: number;
             milestone_index: number | null;
             author_wallet: string;
@@ -188,15 +426,47 @@ export default function CampaignPage() {
             tx_hash_link: string | null;
             created_at: string;
           }>;
-          setImpactPosts(impact);
+          comments?: Array<{
+            id: number;
+            parent_id?: number | null;
+            author_wallet: string;
+            body: string;
+            created_at: string;
+          }>;
+        };
+        if (cancelled) return;
+        if (json.ok) {
+          setDbCampaign(json.campaign ?? null);
+          setDbOrganization(json.organization ?? null);
+          if (Array.isArray(json.deposits)) setDeposits(json.deposits);
+          if (Array.isArray(json.releases)) setReleases(json.releases);
+          if (Array.isArray(json.impactPosts)) setImpactPosts(json.impactPosts);
+          if (Array.isArray(json.comments)) {
+            setComments(
+              json.comments.map((c) => ({
+                id: c.id,
+                parent_id: c.parent_id ?? null,
+                author_wallet: c.author_wallet,
+                body: c.body,
+                created_at: c.created_at,
+              })),
+            );
+          }
         }
       } finally {
-        setFlowLoaded(true);
+        if (!cancelled) setFlowLoaded(true);
       }
     }
 
-    loadFlow();
+    void loadIndexedAndMeta();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
+
+  const commentThreads = useMemo(() => buildCommentThreads(comments), [comments]);
+  const replyTarget =
+    replyToId != null ? comments.find((c) => c.id === replyToId) ?? null : null;
 
   const handleApprove = async () => {
     if (!escrowAddress || !config.usdc || !fundAmount) return;
@@ -349,46 +619,104 @@ export default function CampaignPage() {
     }
   };
 
-  const handleInitXmtp = async () => {
-    const env = (process.env.NEXT_PUBLIC_XMTP_ENV ?? "dev") as "dev" | "production";
-    setXmtpBusy(true);
-    const result = await initXmtpClient(walletClient, env);
-    setXmtpStatus(result.message);
-    setXmtpReady(result.ok);
-    setXmtpInboxId(result.inboxId ?? null);
-    setXmtpBusy(false);
+  const handlePostComment = async () => {
+    if (!address) {
+      alert("Connect wallet first.");
+      return;
+    }
+    const text = commentBody.trim();
+    if (!text) {
+      alert("Write a comment.");
+      return;
+    }
+
+    setCommentSubmitting(true);
+    try {
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const message = `Amini Verification\nAction: Post Campaign Comment\nWallet: ${address.toLowerCase()}\nTimestamp: ${timestamp}`;
+
+      const cdpToken = await getCdpAccessToken();
+      let signature = "";
+      if (!cdpToken) {
+        try {
+          signature = await signMessageAsync({ message });
+        } catch {
+          alert("Signature rejected.");
+          setCommentSubmitting(false);
+          return;
+        }
+      } else {
+        try {
+          signature = await signMessageAsync({ message });
+        } catch {
+          /* CDP may still verify via token */
+        }
+      }
+
+      const res = await fetch(`/api/campaigns/${id}/comments`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          authorWallet: address,
+          body: text,
+          parentId: replyToId ?? undefined,
+          signature: signature || undefined,
+          signatureTimestamp: timestamp,
+          cdpAccessToken: cdpToken ?? undefined,
+        }),
+      });
+      const json = (await res.json()) as {
+        ok: boolean;
+        message?: string;
+        comment?: CampaignCommentRow;
+      };
+      if (!res.ok || !json.ok || !json.comment) {
+        throw new Error(json.message ?? "Failed to post comment.");
+      }
+      const posted = json.comment;
+      setComments((prev) =>
+        posted.parent_id != null ? [...prev, posted] : [posted, ...prev],
+      );
+      setCommentBody("");
+      setReplyToId(null);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setCommentSubmitting(false);
+    }
   };
 
   const handleSendXmtpDraft = async () => {
-    if (!walletClient || !xmtpReady || !xmtpDraft.trim() || !c) return;
+    if (!walletClient || !xmtpDraft.trim()) return;
+    if (xmtpPeerAddress === ZERO_ADDRESS) return;
     const env = (process.env.NEXT_PUBLIC_XMTP_ENV ?? "dev") as "dev" | "production";
-    const [owner, beneficiaryAddr] = c;
-    const peerAddress =
-      address && address.toLowerCase() === beneficiaryAddr.toLowerCase()
-        ? owner
-        : beneficiaryAddr;
 
     setXmtpBusy(true);
+    setXmtpStatus("");
     try {
+      const ok = await ensureMessagingClient();
+      if (!ok) return;
+
       const messages = await sendCampaignThreadMessage(
         walletClient,
         env,
         Number(id),
-        peerAddress,
-        xmtpDraft
+        xmtpPeerAddress,
+        xmtpDraft,
+        getXmtpBindingAuth
       );
       setXmtpMessages(messages);
       setXmtpDraft("");
-      setXmtpStatus("Message sent.");
+      setXmtpStatus("");
     } catch (error) {
-      setXmtpStatus(`XMTP send failed: ${(error as Error).message}`);
+      setXmtpStatus(hintForMessagingSendFailure((error as Error).message));
     } finally {
       setXmtpBusy(false);
     }
   };
 
   const handleStartWorldId = async () => {
-    if (!address || !c) return;
+    if (!address || !c?.[1]) return;
     const beneficiary = c[1].toLowerCase();
     if (address.toLowerCase() !== beneficiary) {
       setWorldIdStatus("Only the beneficiary wallet can verify for this campaign.");
@@ -451,47 +779,23 @@ export default function CampaignPage() {
     setReputationRefreshNonce((v) => v + 1);
   };
 
-  if (loadingCampaign || (c && !c[5])) {
-    return (
-      <main className="app-page px-4 py-8 md:px-8">
-        <div className="app-surface mx-auto max-w-2xl rounded-2xl p-6 md:p-8">
-          {loadingCampaign ? (
-            <div className="flex items-center gap-3">
-              <Spinner size={3} accessibilityLabel="Loading campaign" />
-              <TextBody as="p" className="app-muted">Loading campaign...</TextBody>
-            </div>
-          ) : (
-            <Tag colorScheme="yellow" emphasis="high">Campaign not found.</Tag>
-          )}
-          <Button as={Link} href="/campaigns" variant="secondary" compact transparent className="mt-4">
-            ← Campaigns
-          </Button>
-        </div>
-      </main>
-    );
-  }
-
-  const [owner, beneficiaryAddr, targetAmount, milestoneCount, metadataUri] = c!;
-  type EscrowTuple = readonly [token: `0x${string}`, milestoneAmounts: readonly bigint[], totalDeposited: bigint, releasedCount: bigint, initialized: boolean];
-  const escrow = escrowState as EscrowTuple | undefined;
-  const token = escrow?.[0];
-  const milestoneAmounts = escrow?.[1];
-  const totalDeposited = escrow?.[2];
-  const releasedCount = escrow?.[3];
-  const initialized = escrow?.[4];
   const indexedDeposited = useMemo(
     () => deposits.reduce((sum, d) => sum + BigInt(d.amount), BigInt(0)),
-    [deposits]
+    [deposits],
   );
   const indexedReleased = useMemo(
     () => releases.reduce((sum, r) => sum + BigInt(r.amount), BigInt(0)),
-    [releases]
+    [releases],
   );
+
+  const beneficiaryForReputation =
+    (typeof c?.[1] === "string" && isHexAddress(c[1]) ? c[1] : null) ??
+    (isHexAddress(dbBeneficiary ?? undefined) ? dbBeneficiary! : null);
 
   useEffect(() => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    const beneficiary = c?.[1]?.toLowerCase();
+    const beneficiary = beneficiaryForReputation?.toLowerCase();
     if (!supabaseUrl || !anon || !beneficiary) return;
     const headers: HeadersInit = {
       apikey: anon,
@@ -503,7 +807,7 @@ export default function CampaignPage() {
       try {
         const repRes = await fetch(
           `${supabaseUrl}/rest/v1/reputation_scores?select=score,attested_count,sybil_verified,last_updated&wallet=eq.${beneficiary}&limit=1`,
-          { headers, cache: "no-store" }
+          { headers, cache: "no-store" },
         );
         if (!repRes.ok) return;
         const rows = (await repRes.json()) as Array<{
@@ -519,7 +823,7 @@ export default function CampaignPage() {
     }
 
     void loadReputation();
-  }, [c, reputationRefreshNonce]);
+  }, [beneficiaryForReputation, reputationRefreshNonce]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -543,12 +847,6 @@ export default function CampaignPage() {
     }
     void loadWorldIdHealth();
   }, []);
-  const xmtpPeerAddress = useMemo(() => {
-    if (!address) return beneficiaryAddr;
-    return address.toLowerCase() === beneficiaryAddr.toLowerCase()
-      ? owner
-      : beneficiaryAddr;
-  }, [address, beneficiaryAddr, owner]);
 
   useEffect(() => {
     if (!xmtpReady || !walletClient) return;
@@ -561,15 +859,14 @@ export default function CampaignPage() {
           walletClient,
           env,
           Number(id),
-          xmtpPeerAddress
+          xmtpPeerAddress,
+          getXmtpBindingAuth,
         );
         if (!cancelled) {
           setXmtpMessages(messages);
         }
-      } catch (error) {
-        if (!cancelled) {
-          setXmtpStatus(`XMTP refresh failed: ${(error as Error).message}`);
-        }
+      } catch {
+        /* refresh is best-effort; avoid noisy status while polling */
       }
     }
 
@@ -582,68 +879,432 @@ export default function CampaignPage() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [xmtpReady, walletClient, xmtpPeerAddress, id]);
+  }, [xmtpReady, walletClient, xmtpPeerAddress, id, getXmtpBindingAuth]);
 
-  const panelClass = "app-surface-elev mb-6 rounded-xl p-4";
-  const headingClass = "app-text mb-2 font-medium";
+  const waitingOnChain = contractsConfigured && loadingCampaign;
+  const waitingOnMeta = !flowLoaded;
+  if (waitingOnChain || waitingOnMeta) {
+    return (
+      <main className="app-page px-4 py-8 md:px-8">
+        <div className="app-surface mx-auto max-w-2xl rounded-2xl p-6 md:p-8">
+          <div className="flex items-center gap-3">
+            <Spinner size={3} accessibilityLabel="Loading campaign" />
+            <TextBody as="p" className="app-muted">Loading campaign...</TextBody>
+          </div>
+          <Button as={Link} href="/campaigns" variant="secondary" compact transparent className="mt-4">
+            Back to campaigns
+          </Button>
+        </div>
+      </main>
+    );
+  }
+
+  const onChainOk = contractsConfigured && Boolean(c && c[5]);
+  if (!dbCampaign && !onChainOk) {
+    return (
+      <main className="app-page px-4 py-8 md:px-8">
+        <div className="app-surface mx-auto max-w-2xl rounded-2xl p-6 md:p-8">
+          {!contractsConfigured ? (
+            <>
+              <Tag colorScheme="yellow" emphasis="high">Chain contracts not configured</Tag>
+              <TextBody as="p" className="app-muted mt-3 text-sm">
+                Set <code className="text-xs">NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS</code> and{" "}
+                <code className="text-xs">NEXT_PUBLIC_ESCROW_ADDRESS</code> in your environment, or ensure the
+                campaign exists in the index (Supabase) to view indexed metadata only.
+              </TextBody>
+            </>
+          ) : (
+            <>
+              <Tag colorScheme="yellow" emphasis="high">Campaign not found</Tag>
+              <TextBody as="p" className="app-muted mt-3 text-sm">
+                No indexed row for this id and the registry does not report it on the configured chain. Check{" "}
+                <code className="text-xs">NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS</code>, RPC, and that the campaign id
+                matches on-chain <code className="text-xs">campaigns.id</code> in Supabase.
+              </TextBody>
+            </>
+          )}
+          <Button as={Link} href="/campaigns" variant="secondary" compact transparent className="mt-4">
+            Back to campaigns
+          </Button>
+        </div>
+      </main>
+    );
+  }
+
+  type EscrowTuple = readonly [token: `0x${string}`, milestoneAmounts: readonly bigint[], totalDeposited: bigint, releasedCount: bigint, initialized: boolean];
+  const escrow = escrowState as EscrowTuple | undefined;
+  const milestoneAmounts = onChainOk ? escrow?.[1] : undefined;
+  const totalDeposited = onChainOk ? escrow?.[2] : undefined;
+  const releasedCount = onChainOk ? escrow?.[3] : undefined;
+  const initialized = onChainOk ? Boolean(escrow?.[4]) : false;
+
+  const chainTuple = onChainOk ? (c as CampaignTuple) : null;
+  const displayOwner =
+    chainTuple?.[0] ??
+    (isHexAddress(dbCampaign?.owner ?? undefined) ? (dbCampaign!.owner as `0x${string}`) : null);
+  const displayBeneficiary =
+    chainTuple?.[1] ??
+    (isHexAddress(dbCampaign?.beneficiary ?? undefined)
+      ? (dbCampaign!.beneficiary as `0x${string}`)
+      : null);
+  const targetAmount = chainTuple?.[2] ?? parseTargetAmountFromDb(dbCampaign?.target_amount);
+  const metadataUri =
+    (chainTuple?.[4] as string | undefined) ?? dbCampaign?.metadata_uri?.trim() ?? "";
+  const dbChainId = dbCampaign?.chain_id;
+  const chainMismatch =
+    dbChainId != null && Number(dbChainId) !== Number(config.chainId);
+
+  const fundedForProgress =
+    onChainOk && totalDeposited !== undefined ? totalDeposited : indexedDeposited;
+  const fundingProgressPercent =
+    targetAmount > 0n
+      ? Math.min(100, Math.round((Number(fundedForProgress) / Number(targetAmount)) * 100))
+      : 0;
+
+  const sectionCard =
+    "rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-[var(--ui-shadow-md)] md:p-6";
+  const sectionEyebrow =
+    "mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--ui-brand-green-strong)]";
   const mutedClass = "app-muted text-sm";
   const labelClass = "app-text block text-sm font-medium";
 
+  const displayTitle = dbCampaign?.title?.trim() || `Campaign #${id}`;
+  const heroImageUrl = dbCampaign?.image_url?.trim() ?? "";
+  const socials = parseSocialLinks(dbCampaign?.social_links);
+  const impactMetricRows = parseImpactMetrics(dbCampaign?.impact_metrics);
+
   return (
-    <main className="app-page px-4 py-8 md:px-8">
-      <div className="app-surface mx-auto max-w-2xl rounded-2xl p-6 md:p-8">
-        <Button as={Link} href="/campaigns" variant="secondary" compact transparent className="mb-4">
-          ← Campaigns
-        </Button>
-        <TextTitle2 as="h1" className="brand-brown mb-2">Campaign #{id}</TextTitle2>
-        <TextBody as="p" className="app-muted mb-6">
-          Owner: {owner.slice(0, 10)}... · Beneficiary: {beneficiaryAddr.slice(0, 10)}...
-        </TextBody>
+    <main className="app-page px-4 pb-16 pt-6 md:px-8 lg:px-10">
+      <div className="mx-auto max-w-6xl">
+        <header className="mb-6 flex flex-wrap items-center gap-2 text-sm">
+          <Button as={Link} href="/campaigns" variant="secondary" compact transparent>
+            ← Campaigns
+          </Button>
+          <span className="text-[var(--ui-muted)]" aria-hidden>
+            /
+          </span>
+          <span className="min-w-0 max-w-[min(100%,20rem)] truncate font-medium text-[var(--ui-text)]">
+            {displayTitle}
+          </span>
+        </header>
 
-        <div className={`${panelClass} mb-6`}>
-          <p className={mutedClass}>Target</p>
-          <p className="text-xl font-medium app-text">{formatUsdc(targetAmount)} USDC</p>
-          <p className={`${mutedClass} mt-2`}>Deposited</p>
-          <p className="text-lg app-text">{totalDeposited !== undefined ? formatUsdc(totalDeposited) : "—"} USDC</p>
-          {metadataUri && (
-            <p className={`${mutedClass} mt-2 truncate`}>Metadata: {metadataUri}</p>
-          )}
-        </div>
-
-        <div className={panelClass}>
-          <h2 className={headingClass}>Donation Link & QR</h2>
-          <p className={`${mutedClass} mb-3`}>Share this campaign URL to direct donors to the funding flow.</p>
-          <div className="flex flex-wrap items-start gap-4">
-            <div className="min-w-[220px] flex-1 break-all border border-[var(--ui-border)] bg-[var(--ui-bg)] p-2 text-xs app-muted">
-              {campaignShareUrl || `https://your-domain/campaigns/${id}`}
-            </div>
-            <Button
-              variant="secondary"
-              compact
-              onClick={async () => {
-                if (!campaignShareUrl) return;
-                await navigator.clipboard.writeText(campaignShareUrl);
-                setShareCopied(true);
-                window.setTimeout(() => setShareCopied(false), 1200);
-              }}
+        <div className="mb-6 space-y-3">
+          {!onChainOk && dbCampaign ? (
+            <div
+              className="rounded-xl border border-amber-500/40 bg-[color-mix(in_oklab,var(--ui-brand-amber)_14%,var(--ui-surface-elev))] px-4 py-3 text-sm text-[var(--ui-text)]"
+              role="status"
             >
-              {shareCopied ? "Copied" : "Copy link"}
-            </Button>
-          </div>
-          {campaignShareUrl && (
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
-                campaignShareUrl
-              )}`}
-              alt="Campaign donation QR code"
-              className="mt-3 h-[180px] w-[180px] border border-[var(--ui-border)] bg-[var(--ui-bg)] p-1"
-            />
-          )}
+              <p className="font-semibold text-[var(--ui-text)]">On-chain data unavailable</p>
+              <p className={`${mutedClass} mt-1 leading-relaxed`}>
+                Showing the Supabase-indexed campaign. The registry did not return this id (check{" "}
+                <code className="rounded bg-[var(--ui-surface)] px-1 text-xs">NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS</code>
+                , RPC, or chain). Approve, deposit, and release stay disabled until contracts match this network.
+              </p>
+            </div>
+          ) : null}
+
+          {chainMismatch ? (
+            <div
+              className="rounded-xl border border-amber-500/40 bg-[color-mix(in_oklab,var(--ui-brand-amber)_14%,var(--ui-surface-elev))] px-4 py-3 text-sm text-[var(--ui-text)]"
+              role="status"
+            >
+              <p className="font-semibold text-[var(--ui-text)]">Chain mismatch</p>
+              <p className={`${mutedClass} mt-1`}>
+                Indexer recorded chain id <strong>{dbChainId}</strong>; this app uses{" "}
+                <strong>{config.chainId}</strong> (Base Sepolia = {BASE_SEPOLIA_CHAIN_ID}).
+              </p>
+            </div>
+          ) : null}
         </div>
 
-        {initialized && milestoneAmounts && (
-          <div className="mb-6">
-            <h2 className={`${headingClass} mb-2`}>Milestones</h2>
+        <section
+          className="relative mb-8 overflow-hidden rounded-[1.75rem] border border-[var(--ui-border)] shadow-[var(--ui-shadow-md)]"
+          style={{
+            background:
+              "linear-gradient(135deg, color-mix(in oklab, var(--ui-brand-green) 11%, var(--ui-surface-elev)) 0%, var(--ui-surface-elev) 50%, color-mix(in oklab, var(--ui-brand-brown) 10%, var(--ui-surface-elev)) 100%)",
+          }}
+        >
+          <div
+            className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full opacity-40 blur-3xl"
+            style={{ background: "color-mix(in oklab, var(--ui-brand-green) 55%, transparent)" }}
+            aria-hidden
+          />
+          <div className="relative grid gap-6 p-6 md:gap-8 md:p-8 lg:grid-cols-5 lg:p-10">
+            {heroImageUrl ? (
+              <div className="relative aspect-[16/10] w-full overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-md)] lg:col-span-2 lg:aspect-auto lg:min-h-[260px]">
+                <Image
+                  src={heroImageUrl}
+                  alt=""
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 1024px) 100vw, 360px"
+                  unoptimized
+                />
+              </div>
+            ) : null}
+            <div
+              className={
+                heroImageUrl
+                  ? "flex flex-col justify-center lg:col-span-3"
+                  : "flex flex-col justify-center lg:col-span-5"
+              }
+            >
+              <TextCaption
+                as="p"
+                className="font-bold uppercase tracking-[0.22em] text-[var(--ui-brand-green-strong)]"
+              >
+                Campaign · Chain {config.chainId}
+              </TextCaption>
+              <TextTitle2
+                as="h1"
+                className="brand-brown mt-2 text-3xl font-bold leading-tight tracking-tight md:text-4xl"
+              >
+                {displayTitle}
+              </TextTitle2>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Tag colorScheme={onChainOk ? "green" : "yellow"} emphasis="low">
+                  {onChainOk ? "Live on-chain" : "Indexed metadata"}
+                </Tag>
+                <Tag colorScheme="gray" emphasis="low">
+                  ID #{id}
+                </Tag>
+              </div>
+              {dbCampaign?.description?.trim() ? (
+                <TextBody as="p" className="app-text mt-4 max-w-3xl text-base leading-relaxed">
+                  {dbCampaign.description.trim()}
+                </TextBody>
+              ) : null}
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {displayOwner ? (
+                  <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-2.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)]">Owner</p>
+                    <p className="mt-1 truncate font-mono text-sm text-[var(--ui-text)]">{displayOwner}</p>
+                  </div>
+                ) : null}
+                {displayBeneficiary ? (
+                  <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-2.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)]">
+                      Beneficiary
+                    </p>
+                    <p className="mt-1 truncate font-mono text-sm text-[var(--ui-text)]">{displayBeneficiary}</p>
+                  </div>
+                ) : null}
+              </div>
+              {!displayOwner && !displayBeneficiary ? (
+                <TextBody as="p" className={`${mutedClass} mt-3`}>
+                  Owner / beneficiary addresses are not available from the index yet.
+                </TextBody>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
+        {targetAmount > 0n ? (
+          <div className={`${sectionCard} mb-10`}>
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className={sectionEyebrow}>Funding progress</p>
+                <p className="text-2xl font-bold tabular-nums text-[var(--ui-text)]">
+                  {formatUsdc(fundedForProgress)}{" "}
+                  <span className="text-lg font-semibold text-[var(--ui-muted)]">
+                    / {formatUsdc(targetAmount)} USDC
+                  </span>
+                </p>
+              </div>
+              <p className="text-sm font-semibold tabular-nums brand-green">{fundingProgressPercent}%</p>
+            </div>
+            <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--ui-border)_75%,var(--ui-bg))]">
+              <div
+                className="h-full rounded-full transition-[width] duration-500 ease-out"
+                style={{
+                  width: `${fundingProgressPercent}%`,
+                  background: "linear-gradient(90deg, var(--ui-brand-green), var(--ui-brand-green-strong))",
+                }}
+              />
+            </div>
+            <p className={`${mutedClass} mt-2 text-xs`}>
+              {onChainOk
+                ? "Uses live escrow when available; otherwise indexed deposits from Supabase."
+                : "From indexed deposits; wire registry + RPC for live escrow totals."}
+            </p>
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-10">
+          <div className="space-y-8 lg:col-span-7">
+        {dbOrganization ? (
+          <div className={`${sectionCard} border-emerald-500/25`}>
+            <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
+              Organization
+            </TextHeadline>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+              {dbOrganization.logo_url?.trim() ? (
+                <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)]">
+                  <Image
+                    src={dbOrganization.logo_url.trim()}
+                    alt=""
+                    fill
+                    className="object-cover"
+                    sizes="64px"
+                    unoptimized
+                  />
+                </div>
+              ) : null}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-lg font-bold text-[var(--ui-text)]">{dbOrganization.name}</p>
+                  {dbOrganization.status === "approved" ? (
+                    <Tag colorScheme="green" emphasis="high">Verified org</Tag>
+                  ) : null}
+                </div>
+                {dbOrganization.country ? (
+                  <p className={`${mutedClass} mt-1`}>{dbOrganization.country}</p>
+                ) : null}
+                {dbOrganization.description?.trim() ? (
+                  <p className="mt-2 text-sm leading-relaxed text-[var(--ui-text)]">
+                    {dbOrganization.description.trim()}
+                  </p>
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">
+                  {dbOrganization.website_url?.trim() ? (
+                    <a
+                      href={dbOrganization.website_url.trim()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[var(--ui-brand-green)] hover:underline"
+                    >
+                      Website
+                    </a>
+                  ) : null}
+                  {dbOrganization.official_email?.trim() ? (
+                    <a
+                      href={`mailto:${dbOrganization.official_email.trim()}`}
+                      className="text-[var(--ui-brand-green)] hover:underline"
+                    >
+                      Email
+                    </a>
+                  ) : null}
+                  {dbOrganization.twitter_handle?.trim() ? (
+                    <a
+                      href={`https://twitter.com/${dbOrganization.twitter_handle.replace(/^@/, "")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[var(--ui-brand-green)] hover:underline"
+                    >
+                      Twitter
+                    </a>
+                  ) : null}
+                  {dbOrganization.linkedin_url?.trim() ? (
+                    <a
+                      href={dbOrganization.linkedin_url.trim()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[var(--ui-brand-green)] hover:underline"
+                    >
+                      LinkedIn
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {dbCampaign &&
+        (dbCampaign.beneficiary_description?.trim() ||
+          (dbCampaign.tags && dbCampaign.tags.length > 0) ||
+          dbCampaign.region ||
+          dbCampaign.cause ||
+          dbCampaign.deadline ||
+          dbCampaign.contact_email?.trim() ||
+          socials.length > 0 ||
+          impactMetricRows.length > 0) ? (
+          <div className={sectionCard}>
+            <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
+              Campaign details
+            </TextHeadline>
+            {dbCampaign.beneficiary_description?.trim() ? (
+              <p className="mb-3 text-sm leading-relaxed text-[var(--ui-text)]">
+                <span className="font-semibold text-[var(--ui-muted)]">Who benefits: </span>
+                {dbCampaign.beneficiary_description.trim()}
+              </p>
+            ) : null}
+            <div className={`flex flex-wrap gap-2 ${mutedClass}`}>
+              {dbCampaign.region ? (
+                <Tag colorScheme="gray" emphasis="low">Region: {dbCampaign.region}</Tag>
+              ) : null}
+              {dbCampaign.cause ? (
+                <Tag colorScheme="gray" emphasis="low">Cause: {dbCampaign.cause}</Tag>
+              ) : null}
+              {dbCampaign.deadline ? (
+                <Tag colorScheme="gray" emphasis="low">
+                  Deadline:{" "}
+                  {new Date(dbCampaign.deadline).toLocaleDateString(undefined, { dateStyle: "medium" })}
+                </Tag>
+              ) : null}
+              {dbCampaign.status ? (
+                <Tag colorScheme="gray" emphasis="low">Status: {dbCampaign.status}</Tag>
+              ) : null}
+            </div>
+            {dbCampaign.tags && dbCampaign.tags.length > 0 ? (
+              <p className={`mt-3 text-sm ${mutedClass}`}>
+                <span className="font-medium text-[var(--ui-text)]">Tags: </span>
+                {dbCampaign.tags.join(", ")}
+              </p>
+            ) : null}
+            {dbCampaign.contact_email?.trim() ? (
+              <p className={`mt-2 text-sm ${mutedClass}`}>
+                Contact:{" "}
+                <a
+                  href={`mailto:${dbCampaign.contact_email.trim()}`}
+                  className="text-[var(--ui-brand-green)] hover:underline"
+                >
+                  {dbCampaign.contact_email.trim()}
+                </a>
+              </p>
+            ) : null}
+            {socials.length > 0 ? (
+              <ul className="mt-3 space-y-1 text-sm">
+                {socials.map((s) => (
+                  <li key={s.url}>
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[var(--ui-brand-green)] hover:underline"
+                    >
+                      {s.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {impactMetricRows.length > 0 ? (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--ui-muted)]">
+                  Expected outcomes
+                </p>
+                <ul className="space-y-2 text-sm text-[var(--ui-text)]">
+                  {impactMetricRows.map((m, i) => (
+                    <li key={i}>
+                      <span className="font-medium">{m.name || "Metric"}</span>
+                      {m.target ? <span className="text-[var(--ui-muted)]"> — target: {m.target}</span> : null}
+                      {m.timeframe ? (
+                        <span className="text-[var(--ui-muted)]"> ({m.timeframe})</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {onChainOk && initialized && milestoneAmounts && milestoneAmounts.length > 0 ? (
+          <div className={sectionCard}>
+            <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
+              Milestones
+            </TextHeadline>
             <ul className="space-y-2">
               {milestoneAmounts.map((amt, i) => (
                 <li key={i} className="flex items-center gap-2 app-muted">
@@ -655,18 +1316,35 @@ export default function CampaignPage() {
               ))}
             </ul>
           </div>
-        )}
-
-        {!initialized && (
-          <div className="callout-amber mb-4">
-            <p style={{ color: "var(--ui-brand-amber)" }}>
-              Escrow not initialized yet. Campaign owner must initialize on the create page.
+        ) : !onChainOk && dbCampaign && (dbCampaign.milestone_count ?? 0) > 0 ? (
+          <div className={sectionCard}>
+            <TextHeadline as="h2" className="mb-3 text-[var(--ui-text)]">
+              Milestones
+            </TextHeadline>
+            <p className={`text-sm ${mutedClass}`}>
+              Milestone count from index: <strong>{dbCampaign.milestone_count}</strong>. Connect to the correct network
+              to see per-milestone USDC amounts from the escrow contract.
             </p>
           </div>
-        )}
+        ) : null}
 
-        <div className={panelClass}>
-          <h2 className={headingClass}>Fund Flow (Indexed)</h2>
+        {onChainOk && !initialized ? (
+          <div
+            className="rounded-xl border border-amber-500/35 px-4 py-3 text-sm"
+            style={{ color: "var(--ui-brand-amber)" }}
+            role="status"
+          >
+            Escrow not initialized yet. The campaign owner should complete initialization from the create flow.
+          </div>
+        ) : null}
+
+        <div className={sectionCard}>
+          <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+            Activity (indexed)
+          </TextHeadline>
+          <p className={`${mutedClass} mb-4 text-xs`}>
+            Deposits and releases as recorded by the indexer (Supabase).
+          </p>
           {!flowLoaded ? (
             <div className="flex items-center gap-2"><Spinner size={2} accessibilityLabel="Loading flow" /><span className={mutedClass}>Loading indexed flow...</span></div>
           ) : (
@@ -679,7 +1357,7 @@ export default function CampaignPage() {
                   {deposits.map((d) => (
                     <a
                       key={`dep-${d.tx_hash}`}
-                      href={`https://basescan.org/tx/${d.tx_hash}`}
+                      href={`${TX_EXPLORER_BASE}${d.tx_hash}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flow-deposit"
@@ -693,7 +1371,7 @@ export default function CampaignPage() {
                   {releases.map((r) => (
                     <a
                       key={`rel-${r.tx_hash}`}
-                      href={`https://basescan.org/tx/${r.tx_hash}`}
+                      href={`${TX_EXPLORER_BASE}${r.tx_hash}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flow-release"
@@ -713,83 +1391,10 @@ export default function CampaignPage() {
           )}
         </div>
 
-        <div className={panelClass}>
-          <h2 className={headingClass}>Reputation (Sybil-gated)</h2>
-          {!reputationLoaded ? (
-            <div className="flex items-center gap-2"><Spinner size={2} accessibilityLabel="Loading reputation" /><span className={mutedClass}>Loading reputation...</span></div>
-          ) : !beneficiaryReputation ? (
-            <div>
-              <p className={mutedClass}>No reputation record yet for this beneficiary.</p>
-              {isBeneficiary && (
-                <Button
-                  variant="primary"
-                  compact
-                  className="mt-3"
-                  onClick={handleStartWorldId}
-                  disabled={worldIdBusy || worldIdConfigReady === false}
-                >
-                  {worldIdBusy ? "Preparing..." : "Verify with World ID"}
-                </Button>
-              )}
-            </div>
-          ) : beneficiaryReputation.sybil_verified ? (
-                <div className="text-sm">
-                  <p className="brand-green">Verified by World ID</p>
-                  <p className="mt-1 app-text">
-                    Reputation: <span className="font-semibold">{beneficiaryReputation.score}</span>{" "}
-                    ({beneficiaryReputation.attested_count} attested milestones)
-                  </p>
-                  <p className={`mt-1 text-xs ${mutedClass}`}>
-                    Updated: {new Date(beneficiaryReputation.last_updated).toLocaleString()}
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-sm brand-brown">
-                    Beneficiary is not Sybil-verified yet. Reputation is hidden until verification.
-                  </p>
-                  {isBeneficiary && (
-                    <Button
-                      variant="primary"
-                      compact
-                      className="mt-3"
-                      onClick={handleStartWorldId}
-                      disabled={worldIdBusy || worldIdConfigReady === false}
-                    >
-                      {worldIdBusy ? "Preparing..." : "Verify with World ID"}
-                    </Button>
-                  )}
-                </div>
-              )}
-              {worldIdStatus && <p className={`mt-2 text-xs ${mutedClass}`}>{worldIdStatus}</p>}
-              {worldIdConfigReady === false && (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="callout-amber inline-flex items-center px-2 py-1 text-xs">
-                    World ID config incomplete
-                  </span>
-                  <Link href="/debug/world-id" className="text-xs brand-brown hover:underline">
-                    Check config →
-                  </Link>
-                </div>
-              )}
-          {worldIdRpContext && process.env.NEXT_PUBLIC_WORLDCOIN_APP_ID && process.env.NEXT_PUBLIC_WORLDCOIN_ACTION && (
-            <IDKitRequestWidget
-              open={worldIdOpen}
-              onOpenChange={setWorldIdOpen}
-              app_id={process.env.NEXT_PUBLIC_WORLDCOIN_APP_ID as `app_${string}`}
-              action={process.env.NEXT_PUBLIC_WORLDCOIN_ACTION}
-              rp_context={worldIdRpContext}
-              allow_legacy_proofs={true}
-              preset={orbLegacy({ signal: (address ?? "").toLowerCase() })}
-              handleVerify={handleVerifyWorldId}
-              onSuccess={handleWorldIdSuccess}
-              onError={(errorCode) => setWorldIdStatus(`World ID error: ${errorCode}`)}
-            />
-          )}
-        </div>
-
-        <div className={panelClass}>
-          <h2 className={headingClass}>Impact Feed (IPFS)</h2>
+        <div className={sectionCard}>
+          <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+            Impact feed
+          </TextHeadline>
           <p className={`${mutedClass} mb-3`}>
             Post proof/updates for this campaign. Entries are pinned to IPFS (Filebase) and
             indexed in Supabase.
@@ -801,7 +1406,7 @@ export default function CampaignPage() {
                 onChange={(e) => setImpactBody(e.target.value)}
                 rows={3}
                 placeholder="What progress happened? What evidence did you gather?"
-                className="w-full border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-brown)] focus:outline-none"
+                className="w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-3 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-focus-ring)]"
               />
               <div className="flex flex-wrap gap-2">
                 <input
@@ -810,14 +1415,14 @@ export default function CampaignPage() {
                   value={impactMilestone}
                   onChange={(e) => setImpactMilestone(e.target.value)}
                   placeholder="Milestone index (optional)"
-                  className="w-64 border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-brown)] focus:outline-none"
+                  className="w-64 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
                 />
                 <input
                   type="text"
                   value={impactTxHash}
                   onChange={(e) => setImpactTxHash(e.target.value)}
                   placeholder="Linked tx hash (optional 0x...)"
-                  className="min-w-[280px] flex-1 border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-brown)] focus:outline-none"
+                  className="min-w-[280px] flex-1 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
                 />
                 <input
                   type="file"
@@ -840,9 +1445,12 @@ export default function CampaignPage() {
           {impactPosts.length === 0 ? (
             <p className={`text-sm ${mutedClass}`}>No impact posts yet.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {impactPosts.map((p) => (
-                <div key={p.id} className="border border-[var(--ui-border)] bg-[var(--ui-bg)] p-3">
+                <div
+                  key={p.id}
+                  className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 shadow-sm"
+                >
                   <p className="text-sm text-[var(--ui-text)]">{p.body}</p>
                   <p className={`mt-1 text-xs ${mutedClass}`}>
                     {new Date(p.created_at).toLocaleString()} · by{" "}
@@ -871,7 +1479,7 @@ export default function CampaignPage() {
                     )}
                     {p.tx_hash_link && (
                       <a
-                        href={`https://basescan.org/tx/${p.tx_hash_link}`}
+                        href={`${TX_EXPLORER_BASE}${p.tx_hash_link}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="brand-brown hover:underline"
@@ -886,154 +1494,379 @@ export default function CampaignPage() {
           )}
         </div>
 
-        <div className={panelClass}>
-          <h2 className={headingClass}>Messages (XMTP)</h2>
-          <p className={`${mutedClass} mb-3`}>
-            Wallet-to-wallet campaign messaging. In-app polling only (no push).
+        <div className={sectionCard}>
+          <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+            Comments
+          </TextHeadline>
+          <p className={`${mutedClass} mb-4 text-xs`}>
+            Public discussion. Comments are signed with your wallet (same verification as impact posts). You can
+            reply once per thread (replies nest under the original comment).
           </p>
-          <p className={`mb-3 text-xs ${mutedClass}`}>
-            Thread peer: {xmtpPeerAddress.slice(0, 10)}...
-          </p>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Button
-              variant="primary"
-              compact
-              onClick={handleInitXmtp}
-              disabled={!isConnected || xmtpBusy}
-              loading={xmtpBusy}
-            >
-              {xmtpBusy ? "Working..." : "Initialize XMTP"}
-            </Button>
-            <p className={`text-sm ${xmtpReady ? "brand-green" : mutedClass}`}>
-              {xmtpStatus}
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <textarea
-              value={xmtpDraft}
-              onChange={(e) => setXmtpDraft(e.target.value)}
-              rows={2}
-              placeholder="Write a campaign message..."
-              className="w-full border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-brown)] focus:outline-none"
-            />
-            <Button
-              variant="secondary"
-              compact
-              onClick={handleSendXmtpDraft}
-              disabled={!xmtpReady || !xmtpDraft.trim() || xmtpBusy}
-            >
-              Send message
-            </Button>
-          </div>
-
-          {xmtpMessages.length > 0 ? (
-            <div className="mt-3 space-y-2">
-              {xmtpMessages.map((m) => (
-                <div key={m.id} className="border border-[var(--ui-border)] bg-[var(--ui-bg)] p-2">
-                  <p className="text-sm text-[var(--ui-text)]">{m.text}</p>
-                  <p className={`mt-1 text-xs ${mutedClass}`}>
-                    {new Date(m.sentAt).toLocaleString()} ·{" "}
-                    {xmtpInboxId && m.senderInboxId === xmtpInboxId
-                      ? "you"
-                      : `${m.senderInboxId.slice(0, 10)}...`}
-                  </p>
+          {isConnected ? (
+            <div className="mb-6 space-y-2">
+              {replyTarget ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-2 text-xs text-[var(--ui-text)]">
+                  <span className="min-w-0">
+                    Replying to{" "}
+                    <span className="font-mono text-[var(--ui-muted)]">
+                      {replyTarget.author_wallet.slice(0, 10)}…
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setReplyToId(null)}
+                    className="shrink-0 text-[var(--ui-brand-green)] hover:underline"
+                  >
+                    Cancel
+                  </button>
                 </div>
-              ))}
+              ) : null}
+              <textarea
+                value={commentBody}
+                onChange={(e) => setCommentBody(e.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder={
+                  replyTarget
+                    ? "Write your reply…"
+                    : "Share encouragement, questions, or feedback…"
+                }
+                className="w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-3 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-focus-ring)]"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className={`text-xs ${mutedClass}`}>{commentBody.length}/2000</span>
+                <Button
+                  variant="primary"
+                  compact
+                  onClick={handlePostComment}
+                  disabled={commentSubmitting || !commentBody.trim()}
+                  loading={commentSubmitting}
+                >
+                  {commentSubmitting ? "Posting…" : replyTarget ? "Post reply" : "Post comment"}
+                </Button>
+              </div>
             </div>
           ) : (
-            <p className={`mt-3 text-sm ${mutedClass}`}>No messages yet in this campaign thread.</p>
+            <p className={`${mutedClass} mb-6 text-sm`}>Connect your wallet to leave a comment.</p>
+          )}
+
+          {commentThreads.length === 0 ? (
+            <p className={`text-sm ${mutedClass}`}>No comments yet. Be the first to say something.</p>
+          ) : (
+            <ul className="space-y-4">
+              {commentThreads.map(({ root, replies }) => (
+                <li
+                  key={root.id}
+                  className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4"
+                >
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--ui-text)]">
+                    {root.body}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <p className={`flex flex-wrap items-center gap-x-2 text-xs ${mutedClass}`}>
+                      <span className="font-mono">{root.author_wallet.slice(0, 10)}…</span>
+                      <span aria-hidden>·</span>
+                      <time dateTime={root.created_at}>{new Date(root.created_at).toLocaleString()}</time>
+                    </p>
+                    {isConnected ? (
+                      <button
+                        type="button"
+                        onClick={() => setReplyToId(root.id)}
+                        className="text-xs font-medium text-[var(--ui-brand-green)] hover:underline"
+                      >
+                        Reply
+                      </button>
+                    ) : null}
+                  </div>
+                  {replies.length > 0 ? (
+                    <ul className="mt-4 space-y-3 border-l-2 border-[color-mix(in_oklab,var(--ui-brand-green)_35%,var(--ui-border))] pl-4">
+                      {replies.map((co) => (
+                        <li key={co.id}>
+                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--ui-text)]">
+                            {co.body}
+                          </p>
+                          <p className={`mt-2 flex flex-wrap items-center gap-x-2 text-xs ${mutedClass}`}>
+                            <span className="font-mono">{co.author_wallet.slice(0, 10)}…</span>
+                            <span aria-hidden>·</span>
+                            <time dateTime={co.created_at}>{new Date(co.created_at).toLocaleString()}</time>
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
+          </div>
 
-        {isConnected && initialized && (
-          <div className="space-y-6">
-            <div>
-              <label className={`${labelClass} mb-1`}>Fund (USDC)</label>
-              <div className="flex flex-wrap gap-2">
-                <input
-                  type="text"
-                  value={fundAmount}
-                  onChange={(e) => setFundAmount(e.target.value)}
-                  className="min-w-[120px] flex-1 border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-brown)] focus:outline-none"
-                  placeholder="Amount"
-                />
-                {!approveConfirmed ? (
+          <aside className="space-y-6 lg:col-span-5 lg:sticky lg:top-24 lg:self-start">
+            <div className={sectionCard}>
+              <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+                Share & donate
+              </TextHeadline>
+              <p className={`${mutedClass} mb-4 text-xs`}>
+                Send donors to this page or scan the QR code. Wallet-to-wallet updates use the{" "}
+                <strong className="text-[var(--ui-text)]">messages</strong> button (bottom-right).
+              </p>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                <div className="min-w-0 flex-1">
+                  <div className="break-all rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-2 font-mono text-xs text-[var(--ui-muted)]">
+                    {campaignShareUrl || `https://your-domain/campaigns/${id}`}
+                  </div>
                   <Button
                     variant="primary"
                     compact
-                    onClick={handleApprove}
-                    disabled={!fundAmount || isPendingApprove || isConfirmingApprove}
-                    loading={isPendingApprove || isConfirmingApprove}
+                    className="mt-3"
+                    onClick={async () => {
+                      if (!campaignShareUrl) return;
+                      await navigator.clipboard.writeText(campaignShareUrl);
+                      setShareCopied(true);
+                      window.setTimeout(() => setShareCopied(false), 1200);
+                    }}
                   >
-                    {isPendingApprove || isConfirmingApprove ? "Approve..." : "Approve USDC"}
+                    {shareCopied ? "Copied" : "Copy link"}
                   </Button>
-                ) : (
-                  <Button
-                    variant="primary"
-                    compact
-                    onClick={handleDeposit}
-                    disabled={!fundAmount || isPendingDeposit || isConfirmingDeposit}
-                    loading={isPendingDeposit || isConfirmingDeposit}
-                  >
-                    {isPendingDeposit || isConfirmingDeposit ? "Deposit..." : "Deposit"}
-                  </Button>
-                )}
+                </div>
+                {campaignShareUrl ? (
+                  <div className="shrink-0 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] p-2">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
+                        campaignShareUrl,
+                      )}`}
+                      alt="Campaign QR code"
+                      width={160}
+                      height={160}
+                      className="h-40 w-40"
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
 
-            {(isOwner || isBeneficiary) &&
-              milestoneAmounts &&
-              Number(releasedCount) < milestoneAmounts.length && (
-                <div className="callout-amber">
-                  <h3 className="mb-2 font-medium app-text">Release milestone (requires EAS attestation)</h3>
-                  <input
-                    type="text"
-                    value={releaseMilestoneIndex}
-                    onChange={(e) => setReleaseMilestoneIndex(e.target.value)}
-                    className="mb-2 w-full border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-brown)] focus:outline-none"
-                    placeholder="Milestone index (0-based)"
-                  />
-                  <input
-                    type="text"
-                    value={attestationUid}
-                    onChange={(e) => setAttestationUid(e.target.value)}
-                    className="mb-2 w-full border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 font-mono text-sm app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-brown)] focus:outline-none"
-                    placeholder="Attestation UID (0x...)"
-                  />
-                  <Button
-                    variant="primary"
-                    compact
-                    onClick={handleRelease}
-                    disabled={
-                      releaseMilestoneIndex === "" ||
-                      !attestationUid ||
-                      isPendingRelease ||
-                      isConfirmingRelease
-                    }
-                    loading={isPendingRelease || isConfirmingRelease}
-                  >
-                    {isPendingRelease || isConfirmingRelease ? "Releasing..." : "Release milestone"}
-                  </Button>
+            <div className={sectionCard}>
+              <p className={sectionEyebrow}>Snapshot</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-3">
+                  <p className={`${mutedClass} text-xs font-semibold uppercase tracking-wide`}>Target</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums text-[var(--ui-text)]">
+                    {formatUsdc(targetAmount)}
+                  </p>
+                  <p className="text-xs text-[var(--ui-muted)]">USDC</p>
+                </div>
+                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-3">
+                  <p className={`${mutedClass} text-xs font-semibold uppercase tracking-wide`}>Live escrow</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums text-[var(--ui-text)]">
+                    {onChainOk && totalDeposited !== undefined ? formatUsdc(totalDeposited) : "—"}
+                  </p>
+                  <p className="text-xs text-[var(--ui-muted)]">USDC</p>
+                </div>
+                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-3">
+                  <p className={`${mutedClass} text-xs font-semibold uppercase tracking-wide`}>Indexed in</p>
+                  <p className="mt-1 text-lg font-bold tabular-nums brand-green">{formatUsdc(indexedDeposited)}</p>
+                  <p className="text-xs text-[var(--ui-muted)]">USDC deposited</p>
+                </div>
+              </div>
+              {metadataUri ? (
+                <p className={`${mutedClass} mt-3 truncate text-xs`} title={metadataUri}>
+                  Metadata URI: {metadataUri}
+                </p>
+              ) : null}
+            </div>
+
+            {isConnected && initialized && onChainOk ? (
+              <div className={`${sectionCard} border-[color-mix(in_oklab,var(--ui-brand-green)_28%,var(--ui-border))]`}>
+                <TextHeadline as="h2" className="mb-3 text-[var(--ui-text)]">
+                  Fund on-chain
+                </TextHeadline>
+                <div>
+                  <label className={`${labelClass} mb-1`}>Amount (USDC)</label>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="text"
+                      value={fundAmount}
+                      onChange={(e) => setFundAmount(e.target.value)}
+                      className="min-w-[120px] flex-1 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2.5 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
+                      placeholder="0.00"
+                    />
+                    {!approveConfirmed ? (
+                      <Button
+                        variant="primary"
+                        compact
+                        onClick={handleApprove}
+                        disabled={!fundAmount || isPendingApprove || isConfirmingApprove}
+                        loading={isPendingApprove || isConfirmingApprove}
+                      >
+                        {isPendingApprove || isConfirmingApprove ? "Approve..." : "Approve USDC"}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        compact
+                        onClick={handleDeposit}
+                        disabled={!fundAmount || isPendingDeposit || isConfirmingDeposit}
+                        loading={isPendingDeposit || isConfirmingDeposit}
+                      >
+                        {isPendingDeposit || isConfirmingDeposit ? "Deposit..." : "Deposit"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {(isOwner || isBeneficiary) &&
+                  milestoneAmounts &&
+                  Number(releasedCount) < milestoneAmounts.length && (
+                    <div className="mt-6 rounded-xl border border-amber-500/35 bg-[color-mix(in_oklab,var(--ui-brand-amber)_10%,var(--ui-surface-elev))] p-4">
+                      <h3 className="mb-2 text-sm font-semibold text-[var(--ui-text)]">
+                        Release milestone (EAS attestation)
+                      </h3>
+                      <input
+                        type="text"
+                        value={releaseMilestoneIndex}
+                        onChange={(e) => setReleaseMilestoneIndex(e.target.value)}
+                        className="mb-2 w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
+                        placeholder="Milestone index (0-based)"
+                      />
+                      <input
+                        type="text"
+                        value={attestationUid}
+                        onChange={(e) => setAttestationUid(e.target.value)}
+                        className="mb-2 w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 font-mono text-sm app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
+                        placeholder="Attestation UID (0x...)"
+                      />
+                      <Button
+                        variant="primary"
+                        compact
+                        onClick={handleRelease}
+                        disabled={
+                          releaseMilestoneIndex === "" ||
+                          !attestationUid ||
+                          isPendingRelease ||
+                          isConfirmingRelease
+                        }
+                        loading={isPendingRelease || isConfirmingRelease}
+                      >
+                        {isPendingRelease || isConfirmingRelease ? "Releasing..." : "Release milestone"}
+                      </Button>
+                    </div>
+                  )}
+              </div>
+            ) : null}
+
+            {txDeposit ? (
+              <p className={`text-center text-sm ${mutedClass} lg:text-left`}>
+                Last deposit:{" "}
+                <a
+                  href={`${TX_EXPLORER_BASE}${txDeposit}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium brand-brown hover:underline"
+                >
+                  View on explorer
+                </a>
+              </p>
+            ) : null}
+
+            <div className={sectionCard}>
+              <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+                Trust & reputation
+              </TextHeadline>
+              <p className={`${mutedClass} mb-4 text-xs`}>World ID verification for the beneficiary wallet.</p>
+              {!reputationLoaded ? (
+                <div className="flex items-center gap-2">
+                  <Spinner size={2} accessibilityLabel="Loading reputation" />
+                  <span className={mutedClass}>Loading…</span>
+                </div>
+              ) : !beneficiaryReputation ? (
+                <div>
+                  <p className={mutedClass}>No reputation record yet for this beneficiary.</p>
+                  {isBeneficiary && (
+                    <Button
+                      variant="primary"
+                      compact
+                      className="mt-3"
+                      onClick={handleStartWorldId}
+                      disabled={worldIdBusy || worldIdConfigReady === false}
+                    >
+                      {worldIdBusy ? "Preparing..." : "Verify with World ID"}
+                    </Button>
+                  )}
+                </div>
+              ) : beneficiaryReputation.sybil_verified ? (
+                <div className="text-sm">
+                  <p className="brand-green font-medium">Verified by World ID</p>
+                  <p className="mt-1 app-text">
+                    Score: <span className="font-semibold">{beneficiaryReputation.score}</span> ·{" "}
+                    {beneficiaryReputation.attested_count} attested milestones
+                  </p>
+                  <p className={`mt-1 text-xs ${mutedClass}`}>
+                    Updated {new Date(beneficiaryReputation.last_updated).toLocaleString()}
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm brand-brown">
+                    Beneficiary not Sybil-verified yet. Reputation stays hidden until verification.
+                  </p>
+                  {isBeneficiary && (
+                    <Button
+                      variant="primary"
+                      compact
+                      className="mt-3"
+                      onClick={handleStartWorldId}
+                      disabled={worldIdBusy || worldIdConfigReady === false}
+                    >
+                      {worldIdBusy ? "Preparing..." : "Verify with World ID"}
+                    </Button>
+                  )}
                 </div>
               )}
-          </div>
-        )}
-
-        {txDeposit && (
-          <p className={`mt-4 text-sm ${mutedClass}`}>
-            Deposit tx:{" "}
-            <a
-              href={`https://basescan.org/tx/${txDeposit}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="brand-brown hover:underline"
-            >
-              View on BaseScan
-            </a>
-          </p>
-        )}
+              {worldIdStatus ? <p className={`mt-2 text-xs ${mutedClass}`}>{worldIdStatus}</p> : null}
+              {worldIdConfigReady === false ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-md border border-amber-500/40 px-2 py-1 text-xs text-[var(--ui-text)]">
+                    World ID config incomplete
+                  </span>
+                  <Link href="/debug/world-id" className="text-xs brand-brown hover:underline">
+                    Check config →
+                  </Link>
+                </div>
+              ) : null}
+              {worldIdRpContext &&
+              process.env.NEXT_PUBLIC_WORLDCOIN_APP_ID &&
+              process.env.NEXT_PUBLIC_WORLDCOIN_ACTION ? (
+                <IDKitRequestWidget
+                  open={worldIdOpen}
+                  onOpenChange={setWorldIdOpen}
+                  app_id={process.env.NEXT_PUBLIC_WORLDCOIN_APP_ID as `app_${string}`}
+                  action={process.env.NEXT_PUBLIC_WORLDCOIN_ACTION}
+                  rp_context={worldIdRpContext}
+                  allow_legacy_proofs={true}
+                  preset={orbLegacy({ signal: (address ?? "").toLowerCase() })}
+                  handleVerify={handleVerifyWorldId}
+                  onSuccess={handleWorldIdSuccess}
+                  onError={(errorCode) => setWorldIdStatus(`World ID error: ${errorCode}`)}
+                />
+              ) : null}
+            </div>
+          </aside>
+        </div>
       </div>
+
+      <CampaignMessagesBubble
+        open={xmtpPanelOpen}
+        onOpenChange={setXmtpPanelOpen}
+        isConnected={isConnected}
+        busy={xmtpBusy}
+        statusHint={xmtpStatus}
+        xmtpDraft={xmtpDraft}
+        onDraftChange={setXmtpDraft}
+        xmtpPeerAddress={xmtpPeerAddress}
+        xmtpInboxId={xmtpInboxId}
+        messages={xmtpMessages}
+        onSend={handleSendXmtpDraft}
+      />
     </main>
   );
 }

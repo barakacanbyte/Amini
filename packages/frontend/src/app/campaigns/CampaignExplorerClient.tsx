@@ -10,6 +10,7 @@ import { TextCaption } from "@coinbase/cds-web/typography/TextCaption";
 import { TextLabel2 } from "@coinbase/cds-web/typography/TextLabel2";
 import { Tag } from "@coinbase/cds-web/tag/Tag";
 import { ProgressBar } from "@coinbase/cds-web/visualizations/ProgressBar";
+import { CampaignsSectionDivider } from "./CampaignsHero";
 import { formatUsdc } from "@/lib/contracts";
 
 export type CampaignRow = {
@@ -20,6 +21,13 @@ export type CampaignRow = {
   milestone_count: number;
   metadata_uri: string | null;
   created_at: string;
+  title?: string | null;
+  description?: string | null;
+  image_url?: string | null;
+  region?: string | null;
+  cause?: string | null;
+  tags?: string[] | null;
+  deadline?: string | null;
 };
 
 export type CampaignExplorerRow = CampaignRow & {
@@ -54,6 +62,8 @@ const URGENCY_FILTERS: { value: string; label: string }[] = [
 ];
 
 function campaignTitle(c: CampaignExplorerRow): string {
+  const t = c.title?.trim();
+  if (t && t.length > 0) return t;
   const m = c.metadata_uri?.trim();
   if (m && m.length > 0 && !m.startsWith("ipfs://amini-")) {
     const short = m.replace(/^ipfs:\/\//, "").slice(0, 48);
@@ -63,6 +73,8 @@ function campaignTitle(c: CampaignExplorerRow): string {
 }
 
 function campaignDescription(c: CampaignExplorerRow): string {
+  const d = c.description?.trim();
+  if (d && d.length > 0) return d;
   const m = (c.metadata_uri ?? "").toLowerCase();
   if (m.length > 12) {
     return `${c.milestone_count} milestone${c.milestone_count === 1 ? "" : "s"} · indexed on-chain · ${c.beneficiary.slice(0, 8)}…`;
@@ -102,8 +114,51 @@ function progressPercent(c: CampaignExplorerRow): number {
   return Math.min(100, Math.max(0, Math.round(p)));
 }
 
-function imageSrc(id: number): string {
-  return `https://picsum.photos/seed/amini-campaign-${id}/640/256`;
+function coverImageSrc(c: CampaignExplorerRow): string {
+  const u = c.image_url?.trim();
+  if (u && u.length > 0) return u;
+  return `https://picsum.photos/seed/amini-campaign-${c.id}/640/256`;
+}
+
+function campaignDateLine(c: CampaignExplorerRow): string {
+  const raw = c.deadline?.trim();
+  if (raw) {
+    const dt = new Date(raw);
+    if (!Number.isNaN(dt.getTime())) {
+      return `Campaign ends: ${dt.toLocaleDateString(undefined, { dateStyle: "medium" })}`;
+    }
+  }
+  return `Listed: ${new Date(c.created_at).toLocaleDateString(undefined, { dateStyle: "medium" })}`;
+}
+
+function campaignInitial(c: CampaignExplorerRow): string {
+  const t = campaignTitle(c).trim();
+  const ch = t.charAt(0);
+  return ch && /[\w\d]/i.test(ch) ? ch.toUpperCase() : "#";
+}
+
+function FilterPill({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`whitespace-nowrap rounded-full px-3.5 py-2 text-xs font-bold uppercase tracking-wide transition-all sm:px-4 ${
+        active
+          ? "bg-[var(--ui-brand-green)] text-white shadow-[0_4px_14px_-4px_rgba(16,185,129,0.55)]"
+          : "border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] text-[var(--ui-text)] hover:border-emerald-500/40"
+      }`}
+    >
+      {children}
+    </button>
+  );
 }
 
 export function CampaignExplorerClient({ campaigns }: { campaigns: CampaignExplorerRow[] }) {
@@ -119,12 +174,24 @@ export function CampaignExplorerClient({ campaigns }: { campaigns: CampaignExplo
     const causeCfg = CAUSE_FILTERS.find((c) => c.value === cause) ?? CAUSE_FILTERS[0];
 
     return campaigns.filter((c) => {
-      const blob = [String(c.id), c.owner, c.beneficiary, c.metadata_uri ?? ""].join(" ").toLowerCase();
+      const blob = [
+        String(c.id),
+        c.owner,
+        c.beneficiary,
+        c.metadata_uri ?? "",
+        c.title ?? "",
+        c.description ?? "",
+        c.region ?? "",
+        c.cause ?? "",
+        ...(c.tags ?? []),
+      ]
+        .join(" ")
+        .toLowerCase();
       if (q && !blob.includes(q)) return false;
 
       const meta = (c.metadata_uri ?? "").toLowerCase();
       const title = campaignTitle(c).toLowerCase();
-      const hay = `${meta} ${title} ${String(c.id)}`;
+      const hay = `${meta} ${title} ${String(c.id)} ${c.region ?? ""} ${c.cause ?? ""} ${(c.tags ?? []).join(" ")}`.toLowerCase();
       if (region !== "all" && !matchesKeywords(hay, regionCfg.keywords)) return false;
       if (cause !== "all" && !matchesKeywords(hay, causeCfg.keywords)) return false;
 
@@ -148,155 +215,198 @@ export function CampaignExplorerClient({ campaigns }: { campaigns: CampaignExplo
 
   return (
     <>
-      {/* Filter bar */}
-      <div className="app-surface-elev mt-10 flex flex-wrap items-end gap-4 rounded-xl p-6">
-        <div className="min-w-[240px] flex-1">
-          <TextLabel2 as="label" className="app-muted mb-2 block uppercase tracking-widest">
-            Search campaigns
-          </TextLabel2>
-          <div className="relative">
-            <span className="app-muted pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-              <IconSearch className="h-5 w-5" />
-            </span>
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
+      {/* Toolbar: search + urgency pills (Superfluid-style tabs) */}
+      <div className="mt-2 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
+        <div className="relative w-full max-w-md flex-1">
+          <span className="app-muted pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2">
+            <IconSearch className="h-5 w-5" />
+          </span>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search by ID, wallet, title…"
+            className="input-field w-full rounded-full border-[var(--ui-border)] bg-[var(--ui-surface-elev)] py-3 pl-11 pr-4 shadow-sm"
+            aria-label="Search campaigns"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <span className="hidden text-[10px] font-bold uppercase tracking-widest text-[var(--ui-muted)] lg:inline lg:mr-1">
+            Urgency
+          </span>
+          {URGENCY_FILTERS.map((u) => (
+            <FilterPill
+              key={u.value}
+              active={urgency === u.value}
+              onClick={() => {
+                setUrgency(u.value);
                 setPage(1);
               }}
-              placeholder="ID, wallet, or metadata…"
-              className="input-field pl-10"
-            />
-          </div>
-        </div>
-        <div className="w-full min-w-[160px] sm:w-auto">
-          <TextLabel2 as="label" className="app-muted mb-2 block uppercase tracking-widest">
-            Region
-          </TextLabel2>
-          <select
-            value={region}
-            onChange={(e) => { setRegion(e.target.value); setPage(1); }}
-            className="input-field w-full sm:w-auto"
-          >
-            {REGION_FILTERS.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="w-full min-w-[160px] sm:w-auto">
-          <TextLabel2 as="label" className="app-muted mb-2 block uppercase tracking-widest">
-            Cause
-          </TextLabel2>
-          <select
-            value={cause}
-            onChange={(e) => { setCause(e.target.value); setPage(1); }}
-            className="input-field w-full sm:w-auto"
-          >
-            {CAUSE_FILTERS.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="w-full min-w-[160px] sm:w-auto">
-          <TextLabel2 as="label" className="app-muted mb-2 block uppercase tracking-widest">
-            Urgency
-          </TextLabel2>
-          <select
-            value={urgency}
-            onChange={(e) => { setUrgency(e.target.value); setPage(1); }}
-            className="input-field w-full sm:w-auto"
-          >
-            {URGENCY_FILTERS.map((u) => (
-              <option key={u.value} value={u.value}>{u.label}</option>
-            ))}
-          </select>
+            >
+              {u.label}
+            </FilterPill>
+          ))}
         </div>
       </div>
 
+      <div className="mt-5 flex flex-col gap-3 border-t border-[var(--ui-border)] pt-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <TextLabel2 as="span" className="app-muted w-full py-1 text-[10px] uppercase tracking-widest sm:w-auto sm:pr-2">
+            Region
+          </TextLabel2>
+          {REGION_FILTERS.map((r) => (
+            <FilterPill
+              key={r.value}
+              active={region === r.value}
+              onClick={() => {
+                setRegion(r.value);
+                setPage(1);
+              }}
+            >
+              {r.label}
+            </FilterPill>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <TextLabel2 as="span" className="app-muted w-full py-1 text-[10px] uppercase tracking-widest sm:w-auto sm:pr-2">
+            Cause
+          </TextLabel2>
+          {CAUSE_FILTERS.map((cf) => (
+            <FilterPill
+              key={cf.value}
+              active={cause === cf.value}
+              onClick={() => {
+                setCause(cf.value);
+                setPage(1);
+              }}
+            >
+              {cf.label}
+            </FilterPill>
+          ))}
+        </div>
+      </div>
+
+      <CampaignsSectionDivider />
+
       {filtered.length === 0 ? (
-        <div className="app-surface-elev mt-10 rounded-xl p-8 text-center">
+        <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-6 py-12 text-center shadow-sm">
           <TextBody as="p" className="app-muted">
             No campaigns match your filters. Try clearing search or choosing &quot;All&quot;.
           </TextBody>
         </div>
       ) : (
         <>
-          <div className="mt-12 grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-7 xl:grid-cols-3 xl:gap-8">
             {slice.map((c) => {
               const pct = progressPercent(c);
               const raised = safeBigInt(c.total_raised);
               const target = safeBigInt(c.target_amount);
               const verified = c.attested_releases > 0;
-              const disbursedLabel =
-                raised > BigInt(0) ? `${formatCompactUsdc(raised)}` : "—";
+              const goalLabel = `${formatCompactUsdc(target)} USDC`;
+              const raisedLabel =
+                raised > BigInt(0) ? `${formatCompactUsdc(raised)} USDC` : "—";
+              const cover = coverImageSrc(c);
+              const coverUnoptimized = Boolean(c.image_url?.trim());
+              const initial = campaignInitial(c);
 
               return (
                 <article
                   key={c.id}
-                  className="app-surface-elev group flex flex-col overflow-hidden rounded-xl shadow-xl transition-all hover:shadow-2xl"
+                  className="group flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] shadow-[var(--ui-shadow-md)] transition-shadow hover:shadow-[var(--ui-shadow-lg)]"
                 >
-                  <div className="relative h-48 overflow-hidden bg-[var(--ui-surface)]">
+                  <div className="relative h-44 shrink-0 overflow-hidden bg-[var(--ui-surface)] sm:h-48">
                     <Image
-                      src={imageSrc(c.id)}
+                      src={cover}
                       alt=""
                       fill
-                      className="object-cover transition-transform duration-500 group-hover:scale-105"
-                      sizes="(max-width: 768px) 100vw, 33vw"
+                      unoptimized={coverUnoptimized}
+                      className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                      sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 33vw"
                     />
-                    <div className="absolute left-4 top-4">
+                    <div className="absolute left-3 top-3">
                       <Tag colorScheme="green" emphasis="high">
                         {verified ? "Attested" : "Live"}
                       </Tag>
                     </div>
                   </div>
-                  <div className="flex flex-1 flex-col p-6">
-                    <div className="mb-4 flex items-start justify-between gap-3">
-                      <TextTitle3 as="h3" className="app-text leading-tight tracking-tight">
-                        {campaignTitle(c)}
-                      </TextTitle3>
-                      <div className="shrink-0 text-right">
-                        <TextCaption as="span" className="app-muted block uppercase tracking-tighter">
-                          Raised
-                        </TextCaption>
-                        <span className="app-text font-mono text-lg font-bold tabular-nums">
-                          {disbursedLabel}
-                        </span>
+
+                  <div className="flex flex-1 flex-col p-5 sm:p-6">
+                    <div className="flex gap-3">
+                      <div
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-black text-emerald-950 shadow-inner dark:text-emerald-100"
+                        style={{
+                          background:
+                            "linear-gradient(145deg, #fef08a 0%, #bef264 45%, #86efac 100%)",
+                        }}
+                        aria-hidden
+                      >
+                        {initial}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <TextTitle3 as="h3" className="app-text text-lg font-black leading-snug tracking-tight">
+                          {campaignTitle(c)}
+                        </TextTitle3>
+                        <p className="mt-1 text-xs font-semibold text-violet-600 dark:text-violet-400 sm:text-sm">
+                          {campaignDateLine(c)}
+                        </p>
                       </div>
                     </div>
-                    <TextBody as="p" className="app-muted mb-6 line-clamp-2">
+
+                    <TextBody as="p" className="app-muted mt-4 line-clamp-3 text-sm leading-relaxed">
                       {campaignDescription(c)}
                     </TextBody>
-                    <div className="mt-auto">
-                      <div className="mb-2 flex justify-between text-xs font-bold">
-                        <TextCaption as="span" className="app-muted uppercase">Funding goal</TextCaption>
-                        <TextCaption as="span" className="app-text">{pct}% complete</TextCaption>
+
+                    <div className="mt-4 grid grid-cols-2 gap-4 border-t border-[var(--ui-border)] pt-4">
+                      <div>
+                        <TextCaption as="span" className="app-muted block text-[10px] font-bold uppercase tracking-wider">
+                          Funding goal
+                        </TextCaption>
+                        <p className="mt-1 font-mono text-base font-black tabular-nums text-[var(--ui-text)] sm:text-lg">
+                          {goalLabel}
+                        </p>
+                      </div>
+                      <div>
+                        <TextCaption as="span" className="app-muted block text-[10px] font-bold uppercase tracking-wider">
+                          Raised
+                        </TextCaption>
+                        <p className="mt-1 font-mono text-base font-black tabular-nums text-[var(--ui-brand-green)] sm:text-lg">
+                          {raisedLabel}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2">
+                      <IconVerified className="brand-green h-3.5 w-3.5 shrink-0" />
+                      <TextCaption as="span" className="app-text text-[9px] font-bold uppercase tracking-widest sm:text-[10px]">
+                        {verified ? "EAS attested release" : `${c.milestone_count} milestones`}
+                      </TextCaption>
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      <div className="flex justify-between text-[10px] font-bold uppercase tracking-wide">
+                        <TextCaption as="span" className="app-muted">
+                          Progress
+                        </TextCaption>
+                        <TextCaption as="span" className="app-text">
+                          {pct}% funded
+                        </TextCaption>
                       </div>
                       <ProgressBar
                         progress={pct / 100}
                         accessibilityLabel={`${pct}% funded`}
-                        className="mb-6"
                       />
-                      <div className="flex items-center justify-between border-t border-[var(--ui-border)] pt-4">
-                        <div className="flex items-center gap-2">
-                          <IconVerified className="brand-green h-4 w-4" />
-                          <TextCaption as="span" className="app-text uppercase tracking-widest">
-                            {verified ? "EAS attested release" : `${c.milestone_count} milestones`}
-                          </TextCaption>
-                        </div>
-                        <Button
-                          as={Link}
-                          href={`/campaigns/${c.id}`}
-                          variant="secondary"
-                          compact
-                          transparent
-                        >
-                          View →
-                        </Button>
-                      </div>
-                      <TextCaption as="p" className="app-muted mt-2">
-                        Goal {formatUsdc(target)} USDC · {new Date(c.created_at).toLocaleDateString()}
-                      </TextCaption>
+                    </div>
+
+                    <div className="mt-auto pt-5">
+                      <Link
+                        href={`/campaigns/${c.id}`}
+                        className="btn-green btn-base block w-full rounded-full text-center text-sm font-bold"
+                      >
+                        View campaign
+                      </Link>
                     </div>
                   </div>
                 </article>
@@ -368,9 +478,9 @@ function Pagination({
             key={p}
             type="button"
             onClick={() => onPageChange(p)}
-            className={`flex h-10 w-10 items-center justify-center rounded-md text-sm font-bold transition-colors ${
+            className={`flex h-10 min-w-10 items-center justify-center rounded-full px-2 text-sm font-bold transition-colors ${
               p === page
-                ? "bg-emerald text-white"
+                ? "bg-[var(--ui-brand-green)] text-white shadow-md shadow-emerald-500/25"
                 : "app-muted hover:bg-[var(--ui-surface)]"
             }`}
           >

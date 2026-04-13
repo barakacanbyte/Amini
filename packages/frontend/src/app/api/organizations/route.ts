@@ -7,10 +7,13 @@ import { verifyAminiIdentity } from "@/lib/auth";
  *
  * Returns the organization info and verification status for a given wallet.
  * Used by the campaign creation page to gate access to verified orgs only.
+ *
+ * GET /api/organizations?wallet=<address>&list=1 — all org rows for that wallet (navigation).
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const wallet = searchParams.get("wallet")?.toLowerCase();
+  const list = searchParams.get("list") === "1" || searchParams.get("list") === "true";
 
   if (!wallet) {
     return Response.json({ ok: false, message: "wallet query param is required." }, { status: 400 });
@@ -28,8 +31,14 @@ export async function GET(req: Request) {
   }
 
   try {
+    const select = list
+      ? "id,name,status,wallet,created_at"
+      : "id,name,status,wallet";
+    const limit = list ? "100" : "1";
+    const order = list ? "&order=created_at.desc" : "";
+
     const res = await fetch(
-      `${supabaseUrl}/rest/v1/organizations?wallet=eq.${wallet}&select=id,name,status,wallet&limit=1`,
+      `${supabaseUrl}/rest/v1/organizations?wallet=eq.${wallet}&select=${select}${order}&limit=${limit}`,
       {
         headers: {
           apikey: serviceRole,
@@ -44,6 +53,10 @@ export async function GET(req: Request) {
     }
 
     const rows = (await res.json()) as Array<{ id: string; name: string; status: string; wallet: string }>;
+
+    if (list) {
+      return Response.json({ ok: true, organizations: rows });
+    }
 
     if (rows.length === 0) {
       return Response.json({ ok: true, organization: null });
@@ -186,7 +199,11 @@ export async function POST(req: Request) {
       if (isFilebaseConfigured()) {
         try {
           const buffer = new Uint8Array(await logoFile.arrayBuffer());
-          const result = await uploadBufferToIpfs(`org-logo-${wallet}-${Date.now()}`, buffer);
+          const result = await uploadBufferToIpfs(
+            `org-logo-${wallet}-${Date.now()}`,
+            buffer,
+            logoFile.type || undefined,
+          );
           logoUrl = result.gatewayUrl;
         } catch (uploadErr) {
           console.error("Logo upload error:", uploadErr);

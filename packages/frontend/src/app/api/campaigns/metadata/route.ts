@@ -81,7 +81,11 @@ export async function POST(req: Request) {
       if (filebaseConfigured) {
         try {
           const buf = new Uint8Array(await file.arrayBuffer());
-          const result = await uploadBufferToIpfs(`campaign-image-${Date.now()}`, buf);
+          const result = await uploadBufferToIpfs(
+            `campaign-image-${Date.now()}`,
+            buf,
+            file.type || undefined,
+          );
           imageUrl = result.gatewayUrl;
         } catch (uploadErr) {
           return err("Image upload failed: " + (uploadErr as Error).message, 502);
@@ -118,7 +122,11 @@ export async function POST(req: Request) {
       try {
         const metaJson = JSON.stringify(metadata);
         const metaBuf = new TextEncoder().encode(metaJson);
-        const result = await uploadBufferToIpfs(`campaign-metadata-${Date.now()}`, metaBuf);
+        const result = await uploadBufferToIpfs(
+          `campaign-metadata-${Date.now()}`,
+          metaBuf,
+          "application/json; charset=utf-8",
+        );
         metadataUri = result.ipfsUri;
       } catch (uploadErr) {
         return err("Metadata upload failed: " + (uploadErr as Error).message, 502);

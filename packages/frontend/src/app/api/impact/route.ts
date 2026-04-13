@@ -118,7 +118,7 @@ export async function POST(req: Request) {
         `file${ext}`,
       );
       try {
-        const att = await uploadBufferToIpfs(attKey, buffer);
+        const att = await uploadBufferToIpfs(attKey, buffer, payload.file.type || undefined);
         attachmentCid = att.cid;
         attachmentUrl = att.gatewayUrl;
       } catch (e) {
@@ -143,7 +143,11 @@ export async function POST(req: Request) {
     let ipfsCid: string;
     let ipfsUrl: string;
     try {
-      const main = await uploadBufferToIpfs(jsonKey, Buffer.from(data, "utf-8"));
+      const main = await uploadBufferToIpfs(
+        jsonKey,
+        Buffer.from(data, "utf-8"),
+        "application/json; charset=utf-8",
+      );
       ipfsCid = main.cid;
       ipfsUrl = main.gatewayUrl;
     } catch (e) {

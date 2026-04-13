@@ -23,7 +23,6 @@ export type CampaignDraftPayload = {
   tags?: string[];
   milestones?: { title: string; description: string; amount: string }[];
   attestationService?: string;
-  superfluidEnabled?: boolean;
   permanentStorage?: boolean;
   currentStep?: number;
   imagePreview?: string | null;
@@ -138,7 +137,6 @@ function campaignRowToDraftPayload(row: DraftDbRow): CampaignDraftPayload {
       ? (row.milestone_data as CampaignDraftPayload["milestones"])
       : [{ title: "", description: "", amount: "" }],
     attestationService: typeof dp.attestationService === "string" ? dp.attestationService : "",
-    superfluidEnabled: typeof dp.superfluidEnabled === "boolean" ? dp.superfluidEnabled : false,
     permanentStorage: typeof dp.permanentStorage === "boolean" ? dp.permanentStorage : true,
     currentStep: typeof dp.currentStep === "number" ? dp.currentStep : 1,
     imagePreview: typeof dp.imagePreview === "string" ? dp.imagePreview : null,
@@ -149,7 +147,6 @@ function buildDraftPayloadJson(draft: CampaignDraftPayload): Record<string, unkn
   return {
     stateLoc: draft.stateLoc ?? "",
     attestationService: draft.attestationService ?? "",
-    superfluidEnabled: draft.superfluidEnabled ?? false,
     permanentStorage: draft.permanentStorage ?? true,
     currentStep: draft.currentStep ?? 1,
     imagePreview: draft.imagePreview ?? null,

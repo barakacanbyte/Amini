@@ -69,7 +69,7 @@ forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast --verify
 
 ## Plan
 
-See [PLAN.md](./PLAN.md) for the full build plan (indexing, IPFS/Filebase, XMTP, Superfluid, reputation).
+See [PLAN.md](./PLAN.md) for the full build plan (indexing, IPFS/Filebase, XMTP, reputation).
 
 ## Demo docs
 

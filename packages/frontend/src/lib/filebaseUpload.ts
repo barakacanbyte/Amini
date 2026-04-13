@@ -1,4 +1,5 @@
-import { ObjectManager } from "@filebase/sdk";
+import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { buildIpfsGatewayUrl, resolveIpfsGatewayBase } from "@/lib/ipfsGatewayUrl";
 
 export type FilebaseCredentials = {
   accessKey: string;
@@ -17,13 +18,12 @@ export function getFilebaseCredentials(): FilebaseCredentials | null {
   return { accessKey, secretKey, bucket };
 }
 
-/** Public gateway base (no trailing slash). Override with FILEBASE_IPFS_GATEWAY for dedicated gateways. */
+/** Public gateway base (no trailing slash). Prefer {@link buildIpfsGatewayUrl} from `./ipfsGatewayUrl`. */
 export function getIpfsGatewayBase(): string {
-  return (process.env.FILEBASE_IPFS_GATEWAY ?? "https://ipfs.filebase.io/ipfs").replace(
-    /\/$/,
-    "",
-  );
+  return resolveIpfsGatewayBase();
 }
+
+export { buildIpfsGatewayUrl } from "@/lib/ipfsGatewayUrl";
 
 export type IpfsUploadResult = {
   cid: string;
@@ -31,12 +31,27 @@ export type IpfsUploadResult = {
   ipfsUri: string;
 };
 
+const FILEBASE_S3_ENDPOINT = "https://s3.filebase.com";
+const FILEBASE_S3_REGION = "us-east-1";
+
+function filebaseS3Client(accessKey: string, secretKey: string): S3Client {
+  return new S3Client({
+    region: FILEBASE_S3_REGION,
+    endpoint: FILEBASE_S3_ENDPOINT,
+    credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
+    forcePathStyle: true,
+  });
+}
+
 /**
- * Upload bytes to Filebase IPFS via ObjectManager. Returns CID and HTTP gateway URL.
+ * Upload bytes to Filebase (S3-compatible) IPFS bucket. Uses PutObject + HeadObject for the
+ * resulting CID — avoids @filebase/sdk + @aws-sdk/lib-storage, which can break under Next/webpack
+ * (`endpointFunctions[fn] is not a function`).
  */
 export async function uploadBufferToIpfs(
   key: string,
   body: Buffer | Uint8Array,
+  contentType?: string,
 ): Promise<IpfsUploadResult> {
   const creds = getFilebaseCredentials();
   if (!creds) {
@@ -45,17 +60,36 @@ export async function uploadBufferToIpfs(
     );
   }
   const buf = Buffer.isBuffer(body) ? body : Buffer.from(body);
-  const objectManager = new ObjectManager(creds.accessKey, creds.secretKey, {
-    bucket: creds.bucket,
-  });
-  // SDK typings require metadata/options; runtime treats them as optional.
-  const uploaded = (await objectManager.upload(key, buf, {}, {})) as { cid: string };
-  const cid = uploaded.cid;
+  const client = filebaseS3Client(creds.accessKey, creds.secretKey);
+
+  await client.send(
+    new PutObjectCommand({
+      Bucket: creds.bucket,
+      Key: key,
+      Body: buf,
+      ...(contentType ? { ContentType: contentType } : {}),
+    }),
+  );
+
+  const head = await client.send(
+    new HeadObjectCommand({
+      Bucket: creds.bucket,
+      Key: key,
+    }),
+  );
+
+  const meta = head.Metadata ?? {};
+  const cid =
+    (typeof meta.cid === "string" && meta.cid.trim()) ||
+    (typeof meta.Cid === "string" && meta.Cid.trim()) ||
+    Object.entries(meta).find(([k]) => k.toLowerCase() === "cid")?.[1]?.trim();
   if (!cid) {
-    throw new Error("Filebase upload did not return a CID.");
+    throw new Error(
+      "Filebase did not return a CID on the object (expected x-amz-meta-cid / Metadata.cid after upload).",
+    );
   }
-  const base = getIpfsGatewayBase();
-  const gatewayUrl = `${base}/${cid}`;
+
+  const gatewayUrl = buildIpfsGatewayUrl(cid);
   return { cid, gatewayUrl, ipfsUri: `ipfs://${cid}` };
 }
 

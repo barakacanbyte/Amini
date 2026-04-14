@@ -10,14 +10,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PNPM_VERSION: "9"
-  NODE_VERSION: "20"
+  BUN_VERSION: "1.1"
 
 jobs:
   preview:
     name: Vercel Preview
     runs-on: ubuntu-latest
-    # Only run if Vercel secrets are configured
     if: vars.VERCEL_PROJECT_ID != ''
     environment:
       name: preview
@@ -25,24 +23,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: ${{ env.PNPM_VERSION }}
+          bun-version: ${{ env.BUN_VERSION }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - run: bun install --frozen-lockfile
 
       - name: Build shared deps
         run: |
-          pnpm --filter @amini/shared build
-          pnpm --filter @amini/eas-schemas build
+          bun --filter @amini/shared build
+          bun --filter @amini/eas-schemas build
 
       - name: Install Vercel CLI
-        run: pnpm add -g vercel@latest
+        run: bun add -g vercel@latest
 
       - name: Pull Vercel config
         run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
@@ -59,12 +52,12 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
         working-directory: packages/frontend
 
-      - name: Post preview URL to PR
+      - name: Comment PR with preview URL
         uses: actions/github-script@v7
         with:
           script: |
             const url = '${{ steps.deploy.outputs.url }}';
-            const body = `### 🔗 Preview deployment\n\n${url}\n\n_Deployed from commit ${context.sha.slice(0, 7)}_`;
+            const body = `### Preview deployment\n\n${url}\n\n_Deployed from ${context.sha.slice(0, 7)}_`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,

@@ -156,6 +156,7 @@ async function indexCampaignCreated(from: bigint, to: bigint) {
 }
 
 async function indexFundsDeposited(from: bigint, to: bigint) {
+  const NO_MILESTONE = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
   const logs = await client.getContractEvents({
     address: ESCROW,
     abi: milestoneEscrowAbi,
@@ -164,22 +165,24 @@ async function indexFundsDeposited(from: bigint, to: bigint) {
     toBlock: to,
   });
   for (const log of logs) {
-    const { campaignId, depositor, amount } = (log as unknown as {
-      args: { campaignId: bigint; depositor: `0x${string}`; amount: bigint };
+    const { campaignId, depositor, milestoneIndex, amount } = (log as unknown as {
+      args: { campaignId: bigint; depositor: `0x${string}`; milestoneIndex: bigint; amount: bigint };
       transactionHash: `0x${string}`;
       blockNumber: bigint;
     }).args;
+    const msIndex = milestoneIndex === NO_MILESTONE ? null : Number(milestoneIndex);
     await supabase.from("escrow_deposits").upsert(
       {
         campaign_id: Number(campaignId),
         depositor: depositor.toLowerCase(),
         amount: amount.toString(),
+        milestone_index: msIndex,
         tx_hash: log.transactionHash,
         block_number: Number(log.blockNumber),
       },
       { onConflict: "tx_hash" }
     );
-    console.log("Deposit:", campaignId.toString(), amount.toString());
+    console.log("Deposit:", campaignId.toString(), "milestone:", msIndex ?? "general", amount.toString());
   }
 }
 

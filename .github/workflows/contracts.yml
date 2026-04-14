@@ -4,10 +4,16 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/contracts/**"
+      - "packages/contracts/src/**"
+      - "packages/contracts/test/**"
+      - "packages/contracts/script/**"
+      - "packages/contracts/foundry.toml"
   pull_request:
     paths:
-      - "packages/contracts/**"
+      - "packages/contracts/src/**"
+      - "packages/contracts/test/**"
+      - "packages/contracts/script/**"
+      - "packages/contracts/foundry.toml"
 
 concurrency:
   group: contracts-${{ github.ref }}
@@ -19,7 +25,7 @@ defaults:
 
 jobs:
   test:
-    name: Forge Test Suite
+    name: Build & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,11 +39,11 @@ jobs:
       - name: Build
         run: forge build --sizes
 
-      - name: Tests (verbose)
+      - name: Test
         run: forge test -vvv --gas-report
 
   coverage:
-    name: Coverage Report
+    name: Coverage
     runs-on: ubuntu-latest
     needs: test
     steps:
@@ -50,12 +56,9 @@ jobs:
           version: stable
 
       - name: Generate coverage
-        run: forge coverage --report lcov
+        run: forge coverage --report summary >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload coverage to GitHub summary
-        run: forge coverage | tail -n +3 >> "$GITHUB_STEP_SUMMARY"
-
-  snapshot:
+  gas-snapshot:
     name: Gas Snapshot
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -68,10 +71,10 @@ jobs:
         with:
           version: stable
 
-      - name: Generate gas snapshot
+      - name: Snapshot
         run: forge snapshot
 
-      - name: Post snapshot diff to PR
+      - name: Post to summary
         run: |
           echo '### Gas Snapshot' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

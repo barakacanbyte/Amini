@@ -29,12 +29,18 @@ contract MilestoneEscrow is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Mapping from campaign ID to its respective EscrowState
     mapping(uint256 => EscrowState) public escrows;
 
+    /// @notice Per-milestone deposit totals: campaignId => milestoneIndex => total deposited
+    mapping(uint256 => mapping(uint256 => uint256)) public milestoneDeposited;
+
+    /// @notice Sentinel value indicating a general campaign donation with no milestone preference
+    uint256 public constant NO_MILESTONE_PREFERENCE = type(uint256).max;
+
     event CampaignEscrowInitialized(
         uint256 indexed campaignId,
         address token,
         uint256[] milestoneAmounts
     );
-    event FundsDeposited(uint256 indexed campaignId, address indexed depositor, uint256 amount);
+    event FundsDeposited(uint256 indexed campaignId, address indexed depositor, uint256 milestoneIndex, uint256 amount);
     event MilestoneReleased(
         uint256 indexed campaignId,
         uint256 milestoneIndex,
@@ -46,6 +52,7 @@ contract MilestoneEscrow is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     error InvalidAttestation();
     error CampaignNotInitialized();
     error InvalidMilestoneIndex();
+    error MilestoneLocked();
     error InsufficientDeposit();
     error TransferFailed();
 
@@ -107,25 +114,36 @@ contract MilestoneEscrow is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         emit CampaignEscrowInitialized(campaignId, token, milestoneAmounts);
     }
 
-    /// @notice Deposit USDC (or other ERC20) into campaign escrow.
+    /// @notice Deposit USDC (or other ERC20) into campaign escrow, optionally targeting a milestone.
     /// @param campaignId The ID of the campaign to fund.
+    /// @param milestoneIndex The milestone the donor wants to support, or NO_MILESTONE_PREFERENCE for a general donation.
     /// @param amount The amount of the ERC20 token to deposit.
-    function deposit(uint256 campaignId, uint256 amount) external {
+    function deposit(uint256 campaignId, uint256 milestoneIndex, uint256 amount) external {
         EscrowState storage e = escrows[campaignId];
         if (!e.initialized) revert CampaignNotInitialized();
+        if (milestoneIndex != NO_MILESTONE_PREFERENCE && milestoneIndex >= e.milestoneAmounts.length) {
+            revert InvalidMilestoneIndex();
+        }
+        if (milestoneIndex != NO_MILESTONE_PREFERENCE && milestoneIndex > e.releasedCount) {
+            revert MilestoneLocked();
+        }
         e.totalDeposited += amount;
+        if (milestoneIndex != NO_MILESTONE_PREFERENCE) {
+            milestoneDeposited[campaignId][milestoneIndex] += amount;
+        }
         if (!IERC20(e.token).transferFrom(msg.sender, address(this), amount)) {
             revert TransferFailed();
         }
-        emit FundsDeposited(campaignId, msg.sender, amount);
+        emit FundsDeposited(campaignId, msg.sender, milestoneIndex, amount);
     }
 
-    /// @notice Release one milestone to beneficiary after valid EAS attestation.
+    /// @notice Release one milestone to beneficiary after valid EAS attestation. Admin-only.
     /// @param campaignId The relevant campaign ID.
     /// @param milestoneIndex The index of the milestone being released.
     /// @param attestationUID UID of the attestation (must match milestoneSchemaUID and encode campaignId + milestoneIndex).
     function releaseMilestone(uint256 campaignId, uint256 milestoneIndex, bytes32 attestationUID)
         external
+        onlyOwner
     {
         EscrowState storage e = escrows[campaignId];
         if (!e.initialized) revert CampaignNotInitialized();
@@ -155,6 +173,15 @@ contract MilestoneEscrow is Initializable, UUPSUpgradeable, OwnableUpgradeable {
         if (e.releasedCount == e.milestoneAmounts.length) {
             emit CampaignCompleted(campaignId);
         }
+    }
+
+    /// @notice Returns the total deposited toward a specific milestone of a campaign.
+    function getMilestoneDeposited(uint256 campaignId, uint256 milestoneIndex)
+        external
+        view
+        returns (uint256)
+    {
+        return milestoneDeposited[campaignId][milestoneIndex];
     }
 
     /// @notice Internal helper to query CampaignRegistry for campaign data.

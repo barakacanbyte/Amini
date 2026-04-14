@@ -26,6 +26,7 @@ import {
   parseUsdc,
 } from "@/lib/contracts";
 import { BASE_SEPOLIA_CHAIN_ID } from "@amini/shared";
+import type { DonorListItem } from "@/lib/organizationTypes";
 import {
   initXmtpClient,
   loadCampaignThreadMessages,
@@ -56,6 +57,10 @@ const TX_EXPLORER_BASE =
   config.chainId === BASE_SEPOLIA_CHAIN_ID
     ? "https://sepolia.basescan.org/tx/"
     : "https://basescan.org/tx/";
+const EAS_SCAN_BASE =
+  config.chainId === BASE_SEPOLIA_CHAIN_ID
+    ? "https://base-sepolia.easscan.org/attestation/view/"
+    : "https://base.easscan.org/attestation/view/";
 
 type CampaignFromApi = {
   id: number;
@@ -179,6 +184,18 @@ function buildCommentThreads(comments: CampaignCommentRow[]) {
   });
 }
 
+function parseMilestoneData(raw: unknown): Array<{ title?: string; description?: string }> {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((m) => {
+    if (!m || typeof m !== "object") return {};
+    const o = m as Record<string, unknown>;
+    return {
+      title: typeof o.title === "string" ? o.title : undefined,
+      description: typeof o.description === "string" ? o.description : undefined,
+    };
+  });
+}
+
 function parseImpactMetrics(raw: unknown): ImpactMetricRow[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -230,11 +247,38 @@ export default function CampaignPage() {
   });
 
   const [fundAmount, setFundAmount] = useState("");
+  const [fundMilestoneIndex, setFundMilestoneIndex] = useState<string>("general");
+  const [fundAnonymous, setFundAnonymous] = useState(false);
+  const [fundMessage, setFundMessage] = useState("");
+  const [donorProfileName, setDonorProfileName] = useState<string | null>(null);
+  const [donorProfileAvatar, setDonorProfileAvatar] = useState<string | null>(null);
+  const [depositSuccessBanner, setDepositSuccessBanner] = useState(false);
+  const [proofMilestoneIndex, setProofMilestoneIndex] = useState<number | null>(null);
+  const [proofTitle, setProofTitle] = useState("");
+  const [proofDescription, setProofDescription] = useState("");
+  const [proofFiles, setProofFiles] = useState<FileList | null>(null);
+  const [proofSubmitting, setProofSubmitting] = useState(false);
+  const [proofSuccessBanner, setProofSuccessBanner] = useState(false);
+  const [milestoneProofs, setMilestoneProofs] = useState<
+    Array<{
+      id: number;
+      milestone_index: number;
+      title: string;
+      description: string;
+      evidence_urls: string[];
+      ipfs_url?: string | null;
+      status: string;
+      reviewer_notes?: string;
+      attestation_uid?: string | null;
+      created_at: string;
+    }>
+  >([]);
   const [releaseMilestoneIndex, setReleaseMilestoneIndex] = useState("");
   const [attestationUid, setAttestationUid] = useState("");
   const [deposits, setDeposits] = useState<
-    Array<{ tx_hash: string; depositor: string; amount: string; block_number: number; created_at: string }>
+    Array<{ tx_hash: string; depositor: string; amount: string; milestone_index: number | null; block_number: number; created_at: string }>
   >([]);
+  const [donors, setDonors] = useState<DonorListItem[]>([]);
   const [releases, setReleases] = useState<
     Array<{ tx_hash: string; milestone_index: number; amount: string; attestation_uid: string | null; block_number: number; created_at: string }>
   >([]);
@@ -294,7 +338,7 @@ export default function CampaignPage() {
   const { writeContract: writeApprove, data: txApprove, isPending: isPendingApprove } = useWriteContract();
   const { isLoading: isConfirmingApprove } = useWaitForTransactionReceipt({ hash: txApprove });
   const { writeContract: writeDeposit, data: txDeposit, isPending: isPendingDeposit } = useWriteContract();
-  const { isLoading: isConfirmingDeposit } = useWaitForTransactionReceipt({ hash: txDeposit });
+  const { isLoading: isConfirmingDeposit, isSuccess: depositConfirmed } = useWaitForTransactionReceipt({ hash: txDeposit });
   const { writeContract: writeRelease, data: txRelease, isPending: isPendingRelease } = useWriteContract();
   const { isLoading: isConfirmingRelease } = useWaitForTransactionReceipt({ hash: txRelease });
 
@@ -401,6 +445,7 @@ export default function CampaignPage() {
             tx_hash: string;
             depositor: string;
             amount: string;
+            milestone_index: number | null;
             block_number: number;
             created_at: string;
           }>;
@@ -412,6 +457,7 @@ export default function CampaignPage() {
             block_number: number;
             created_at: string;
           }>;
+          donors?: DonorListItem[];
           impactPosts?: Array<{
             id: number;
             milestone_index: number | null;
@@ -440,6 +486,7 @@ export default function CampaignPage() {
           setDbOrganization(json.organization ?? null);
           if (Array.isArray(json.deposits)) setDeposits(json.deposits);
           if (Array.isArray(json.releases)) setReleases(json.releases);
+          if (Array.isArray(json.donors)) setDonors(json.donors);
           if (Array.isArray(json.impactPosts)) setImpactPosts(json.impactPosts);
           if (Array.isArray(json.comments)) {
             setComments(
@@ -464,6 +511,78 @@ export default function CampaignPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/campaigns/${id}/milestone-proofs`, { cache: "no-store" });
+        const json = (await res.json()) as { ok: boolean; proofs?: typeof milestoneProofs };
+        if (!cancelled && json.ok && Array.isArray(json.proofs)) {
+          setMilestoneProofs(json.proofs);
+        }
+      } catch { /* best effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  const handleSubmitProof = async (milestoneIdx: number) => {
+    if (!address) { alert("Connect wallet first."); return; }
+    if (!proofTitle.trim()) { alert("Title is required."); return; }
+    if (!proofDescription.trim()) { alert("Description is required."); return; }
+
+    setProofSubmitting(true);
+    try {
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const message = `Amini Verification\nAction: Submit Milestone Proof\nWallet: ${address.toLowerCase()}\nTimestamp: ${timestamp}`;
+      const cdpToken = await getCdpAccessToken();
+      let signature = "";
+      if (!cdpToken) {
+        try { signature = await signMessageAsync({ message }); } catch {
+          alert("Signature rejected.");
+          setProofSubmitting(false);
+          return;
+        }
+      } else {
+        try { signature = await signMessageAsync({ message }); } catch { /* CDP may verify via token */ }
+      }
+
+      const form = new FormData();
+      form.append("submitterWallet", address);
+      form.append("milestoneIndex", String(milestoneIdx));
+      form.append("title", proofTitle.trim());
+      form.append("description", proofDescription.trim());
+      if (signature) { form.append("signature", signature); form.append("signatureTimestamp", timestamp); }
+      if (cdpToken) form.append("cdpAccessToken", cdpToken);
+      if (proofFiles) {
+        for (let i = 0; i < proofFiles.length; i++) {
+          form.append("file", proofFiles[i]);
+        }
+      }
+
+      const res = await fetch(`/api/campaigns/${id}/milestone-proofs`, {
+        method: "POST",
+        body: form,
+      });
+      const json = (await res.json()) as { ok: boolean; message?: string; proof?: (typeof milestoneProofs)[0] };
+      if (!res.ok || !json.ok) throw new Error(json.message ?? "Failed to submit proof.");
+
+      if (json.proof) {
+        setMilestoneProofs((prev) => [...prev, json.proof!]);
+      }
+      setProofTitle("");
+      setProofDescription("");
+      setProofFiles(null);
+      setProofMilestoneIndex(null);
+      setProofSuccessBanner(true);
+      setTimeout(() => setProofSuccessBanner(false), 6000);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setProofSubmitting(false);
+    }
+  };
+
   const commentThreads = useMemo(() => buildCommentThreads(comments), [comments]);
   const replyTarget =
     replyToId != null ? comments.find((c) => c.id === replyToId) ?? null : null;
@@ -485,15 +604,20 @@ export default function CampaignPage() {
     }
   };
 
+  const NO_MILESTONE_PREFERENCE = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
   const handleDeposit = () => {
     if (!escrowAddress || !fundAmount) return;
     const amountWei = parseUsdc(fundAmount);
     if (amountWei <= BigInt(0)) return;
+    const milestoneArg = fundMilestoneIndex === "general"
+      ? NO_MILESTONE_PREFERENCE
+      : BigInt(fundMilestoneIndex);
     writeDeposit({
       address: escrowAddress,
       abi: milestoneEscrowAbi,
       functionName: "deposit",
-      args: [campaignId, amountWei],
+      args: [campaignId, milestoneArg, amountWei],
       chainId: config.chainId,
     });
   };
@@ -778,6 +902,61 @@ export default function CampaignPage() {
     setWorldIdOpen(false);
     setReputationRefreshNonce((v) => v + 1);
   };
+
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/profiles/${address}`, { cache: "no-store" });
+        const json = (await res.json()) as { ok: boolean; profile?: { name?: string | null; avatar_url?: string | null } | null };
+        if (!cancelled && json.ok && json.profile) {
+          setDonorProfileName(json.profile.name?.trim() || null);
+          setDonorProfileAvatar(json.profile.avatar_url?.trim() || null);
+        }
+      } catch { /* best effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [address]);
+
+  const depositPrefSavedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!depositConfirmed || !txDeposit || !address) return;
+    if (depositPrefSavedRef.current === txDeposit) return;
+    depositPrefSavedRef.current = txDeposit;
+
+    (async () => {
+      try {
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const message = `Amini Verification\nAction: Save Donation Preference\nWallet: ${address.toLowerCase()}\nTimestamp: ${timestamp}`;
+        const cdpToken = await getCdpAccessToken();
+        let signature = "";
+        if (!cdpToken) {
+          try { signature = await signMessageAsync({ message }); } catch { return; }
+        } else {
+          try { signature = await signMessageAsync({ message }); } catch { /* CDP may verify via token */ }
+        }
+        await fetch("/api/donations/preferences", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            txHash: txDeposit,
+            donorWallet: address,
+            isAnonymous: fundAnonymous,
+            donorMessage: fundMessage.trim() || undefined,
+            signature: signature || undefined,
+            signatureTimestamp: timestamp,
+            cdpAccessToken: cdpToken ?? undefined,
+          }),
+        });
+        setDepositSuccessBanner(true);
+        setTimeout(() => setDepositSuccessBanner(false), 8000);
+      } catch {
+        setDepositSuccessBanner(true);
+        setTimeout(() => setDepositSuccessBanner(false), 8000);
+      }
+    })();
+  }, [depositConfirmed, txDeposit, address, fundAnonymous, fundMessage, getCdpAccessToken, signMessageAsync]);
 
   const indexedDeposited = useMemo(
     () => deposits.reduce((sum, d) => sum + BigInt(d.amount), BigInt(0)),
@@ -1302,18 +1481,253 @@ export default function CampaignPage() {
 
         {onChainOk && initialized && milestoneAmounts && milestoneAmounts.length > 0 ? (
           <div className={sectionCard}>
-            <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
+            <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
               Milestones
             </TextHeadline>
-            <ul className="space-y-2">
-              {milestoneAmounts.map((amt, i) => (
-                <li key={i} className="flex items-center gap-2 app-muted">
-                  <span className={Number(releasedCount) > i ? "brand-green" : ""}>
-                    {i + 1}. {formatUsdc(amt)} USDC
-                    {Number(releasedCount) > i ? " ✓ Released" : ""}
-                  </span>
-                </li>
-              ))}
+            <p className={`${mutedClass} mb-4 text-xs`}>
+              Milestone 1 is open for funding immediately. Each subsequent milestone unlocks only after the previous one is completed, verified by volunteers, and attested on-chain (EAS).
+            </p>
+            <ul className="space-y-4">
+              {milestoneAmounts.map((amt, i) => {
+                const msData = parseMilestoneData(dbCampaign?.milestone_data);
+                const msTitle = msData[i]?.title?.trim();
+                const msDesc = msData[i]?.description?.trim();
+                const msDonors = donors.filter((d) => d.milestone_index === i);
+                const msProofs = milestoneProofs.filter((p) => p.milestone_index === i);
+                const approvedProof = msProofs.find(
+                  (p) => p.status === "approved" && p.attestation_uid,
+                );
+                const msFunded = msDonors.reduce((s, d) => s + BigInt(d.amount), BigInt(0));
+                const msPercent = amt > 0n ? Math.min(100, Math.round((Number(msFunded) / Number(amt)) * 100)) : 0;
+                const isReleased = Number(releasedCount) > i;
+                const isActive = Number(releasedCount) === i;
+                const isLocked = i > Number(releasedCount);
+                return (
+                  <li
+                    key={i}
+                    className={`rounded-xl border p-4 ${
+                      isReleased
+                        ? "border-emerald-500/30 bg-[color-mix(in_oklab,var(--ui-brand-green)_6%,var(--ui-surface))]"
+                        : isActive
+                        ? "border-[color-mix(in_oklab,var(--ui-brand-green)_30%,var(--ui-border))] bg-[var(--ui-surface)]"
+                        : "border-[var(--ui-border)] bg-[var(--ui-surface)] opacity-60"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                              isReleased
+                                ? "bg-[var(--ui-brand-green)] text-white"
+                                : isLocked
+                                ? "bg-[var(--ui-surface-elev)] text-[var(--ui-muted)] ring-1 ring-[var(--ui-border)]"
+                                : "bg-[var(--ui-border)] text-[var(--ui-muted)]"
+                            }`}
+                          >
+                            {isReleased ? "\u2713" : isLocked ? "\u{1F512}" : i + 1}
+                          </span>
+                          <span className={`font-medium ${isReleased ? "brand-green" : isLocked ? "text-[var(--ui-muted)]" : "app-text"}`}>
+                            {msTitle || `Milestone ${i + 1}`}
+                          </span>
+                          {isActive && !isReleased && (
+                            <span className="rounded-full bg-[var(--ui-brand-green)] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                              Open
+                            </span>
+                          )}
+                          {isLocked && (
+                            <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-2 py-0.5 text-[10px] font-bold uppercase text-[var(--ui-muted)]">
+                              Locked
+                            </span>
+                          )}
+                          {approvedProof?.attestation_uid ? (
+                            <a
+                              href={`${EAS_SCAN_BASE}${approvedProof.attestation_uid}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-600 hover:bg-emerald-500/15"
+                              title={approvedProof.attestation_uid}
+                            >
+                              EAS attested
+                            </a>
+                          ) : null}
+                        </div>
+                        {msDesc && (
+                          <p className={`mt-1 pl-8 text-xs leading-relaxed ${mutedClass}`}>{msDesc}</p>
+                        )}
+                        {isLocked && (
+                          <p className="mt-1.5 pl-8 text-xs text-amber-500/90">
+                            Requires milestone {i} to be completed, verified by volunteers, and attested (EAS) before funding opens.
+                          </p>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-sm font-bold tabular-nums text-[var(--ui-text)]">
+                        {formatUsdc(amt)} <span className="text-xs font-normal text-[var(--ui-muted)]">USDC</span>
+                      </span>
+                    </div>
+                    {!isLocked && (
+                      <div className="mt-3 pl-8">
+                        <div className="h-1.5 overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--ui-border)_75%,var(--ui-bg))]">
+                          <div
+                            className="h-full rounded-full transition-[width] duration-500 ease-out"
+                            style={{
+                              width: `${msPercent}%`,
+                              background: isReleased
+                                ? "var(--ui-brand-green)"
+                                : "linear-gradient(90deg, var(--ui-brand-green), var(--ui-brand-green-strong))",
+                            }}
+                          />
+                        </div>
+                        <p className={`mt-1 text-xs ${mutedClass}`}>
+                          {formatUsdc(msFunded)} / {formatUsdc(amt)} USDC
+                          {msDonors.length > 0 && <> · {msDonors.length} donor{msDonors.length !== 1 ? "s" : ""}</>}
+                          {isReleased && " · Attested & Released"}
+                        </p>
+                      </div>
+                    )}
+                    {msDonors.length > 0 && !isLocked && (
+                      <div className="mt-3 flex flex-wrap gap-1.5 pl-8">
+                        {msDonors.slice(0, 8).map((d) => (
+                          <span
+                            key={d.tx_hash}
+                            title={`${d.is_anonymous ? "Anonymous" : (d.display_name || "Donor")} · +${formatUsdc(BigInt(d.amount))} USDC`}
+                            className="flex items-center gap-1.5 rounded-full border border-[var(--ui-border)] bg-[var(--ui-bg)] px-2 py-0.5 text-xs"
+                          >
+                            {!d.is_anonymous && d.avatar_url ? (
+                              <img src={d.avatar_url} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
+                            ) : (
+                              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[var(--ui-border)] text-[8px] font-bold text-[var(--ui-muted)]">
+                                {d.is_anonymous ? "?" : (d.display_name?.[0]?.toUpperCase() ?? "D")}
+                              </span>
+                            )}
+                            <span className="max-w-[6rem] truncate font-medium text-[var(--ui-text)]">
+                              {d.is_anonymous ? "Anonymous" : (d.display_name || "Donor")}
+                            </span>
+                          </span>
+                        ))}
+                        {msDonors.length > 8 && (
+                          <span className={`self-center text-xs ${mutedClass}`}>+{msDonors.length - 8} more</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Existing proof submissions for this milestone */}
+                    {(() => {
+                      if (msProofs.length === 0) return null;
+                      return (
+                        <div className="mt-3 space-y-2 pl-8">
+                          {msProofs.map((p) => (
+                            <div
+                              key={p.id}
+                              className={`rounded-lg border px-3 py-2 text-xs ${
+                                p.status === "approved"
+                                  ? "border-emerald-500/30 bg-[color-mix(in_oklab,var(--ui-brand-green)_6%,var(--ui-surface))]"
+                                  : p.status === "rejected"
+                                  ? "border-red-400/30 bg-red-50/5"
+                                  : "border-amber-400/30 bg-amber-50/5"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={`font-semibold ${
+                                  p.status === "approved" ? "text-emerald-600" : p.status === "rejected" ? "text-red-500" : "text-amber-600"
+                                }`}>
+                                  {p.status === "approved" ? "\u2713 Proof approved" : p.status === "rejected" ? "\u2717 Proof rejected" : "\u23F3 Proof under review"}
+                                </span>
+                                {p.status === "approved" && p.attestation_uid ? (
+                                  <a
+                                    href={`${EAS_SCAN_BASE}${p.attestation_uid}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-600 hover:bg-emerald-500/15"
+                                    title={p.attestation_uid}
+                                  >
+                                    EAS attested
+                                  </a>
+                                ) : null}
+                              </div>
+                              <p className="mt-0.5 font-medium text-[var(--ui-text)]">{p.title}</p>
+                              {p.status === "approved" && p.attestation_uid ? (
+                                <p className="mt-1 text-[10px] text-[var(--ui-muted)]">
+                                  UID: {p.attestation_uid.slice(0, 10)}...{p.attestation_uid.slice(-6)}
+                                </p>
+                              ) : null}
+                              {p.status === "rejected" && p.reviewer_notes && (
+                                <p className="mt-1 italic text-red-500/80">Admin: &ldquo;{p.reviewer_notes}&rdquo;</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Submit proof button/form for org owner */}
+                    {isOwner && isActive && !isReleased && (
+                      <div className="mt-3 pl-8">
+                        {proofMilestoneIndex === i ? (
+                          <div className="space-y-2 rounded-xl border border-[color-mix(in_oklab,var(--ui-brand-green)_25%,var(--ui-border))] bg-[var(--ui-bg)] p-3">
+                            <p className="text-xs font-bold uppercase tracking-wider text-[var(--ui-brand-green-strong)]">
+                              Submit proof for {msTitle || `Milestone ${i + 1}`}
+                            </p>
+                            <input
+                              type="text"
+                              value={proofTitle}
+                              onChange={(e) => setProofTitle(e.target.value)}
+                              maxLength={200}
+                              placeholder="Proof title (e.g. 'Water well construction complete')"
+                              className="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-sm app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
+                            />
+                            <textarea
+                              value={proofDescription}
+                              onChange={(e) => setProofDescription(e.target.value)}
+                              rows={3}
+                              maxLength={4000}
+                              placeholder="Describe the work completed, include dates, locations, and measurable outcomes..."
+                              className="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-sm app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
+                            />
+                            <div className="flex flex-wrap items-center gap-3">
+                              <input
+                                type="file"
+                                multiple
+                                accept="image/*,.pdf,.txt"
+                                onChange={(e) => setProofFiles(e.target.files)}
+                                className="max-w-xs text-xs file:mr-2 file:rounded-md file:border-0 file:bg-[var(--ui-brand-brown)] file:px-2 file:py-1 file:text-xs file:font-medium file:text-[var(--ui-brand-brown-soft)]"
+                              />
+                              <span className={`text-xs ${mutedClass}`}>Photos, PDFs, text (max 5MB each)</span>
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                              <Button
+                                variant="primary"
+                                compact
+                                onClick={() => handleSubmitProof(i)}
+                                disabled={proofSubmitting || !proofTitle.trim() || !proofDescription.trim()}
+                                loading={proofSubmitting}
+                              >
+                                {proofSubmitting ? "Submitting..." : "Submit proof"}
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                compact
+                                transparent
+                                onClick={() => { setProofMilestoneIndex(null); setProofTitle(""); setProofDescription(""); setProofFiles(null); }}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="primary"
+                            compact
+                            onClick={() => setProofMilestoneIndex(i)}
+                          >
+                            Submit completion proof
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : !onChainOk && dbCampaign && (dbCampaign.milestone_count ?? 0) > 0 ? (
@@ -1390,6 +1804,65 @@ export default function CampaignPage() {
             </>
           )}
         </div>
+
+        {donors.length > 0 && (
+          <div className={sectionCard} id="supporters">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <TextHeadline as="h2" className="text-[var(--ui-text)]">
+                  Supporters
+                </TextHeadline>
+                <p className={`mt-1 text-xs ${mutedClass}`}>
+                  {donors.length} donor{donors.length !== 1 ? "s" : ""} — permanently recorded on Base.
+                </p>
+              </div>
+              <p className="text-sm font-bold tabular-nums text-[var(--ui-brand-green)]">
+                {formatUsdc(donors.reduce((s, d) => s + BigInt(d.amount), 0n))} USDC
+              </p>
+            </div>
+            <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              {donors.map((d) => (
+                <li
+                  key={d.tx_hash}
+                  className="flex items-start gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2.5"
+                >
+                  {!d.is_anonymous && d.avatar_url ? (
+                    <img src={d.avatar_url} alt="" className="mt-0.5 h-8 w-8 shrink-0 rounded-full object-cover" />
+                  ) : (
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--ui-border)] text-xs font-bold text-[var(--ui-muted)]">
+                      {d.is_anonymous ? "?" : (d.display_name?.[0]?.toUpperCase() ?? "D")}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="text-sm font-semibold text-[var(--ui-text)]">
+                        {d.is_anonymous ? "Anonymous Donor" : (d.display_name || "Donor")}
+                      </span>
+                      <span className="text-sm font-medium brand-green">
+                        +{formatUsdc(BigInt(d.amount))} USDC
+                      </span>
+                      {d.milestone_index != null && (() => {
+                        const msData = parseMilestoneData(dbCampaign?.milestone_data);
+                        const label = msData[d.milestone_index]?.title?.trim() || `Milestone ${d.milestone_index + 1}`;
+                        return (
+                          <span className={`text-xs ${mutedClass}`}>
+                            → {label}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    {d.donor_message && (
+                      <p className="mt-0.5 text-xs italic text-[var(--ui-muted)]">&ldquo;{d.donor_message}&rdquo;</p>
+                    )}
+                    <p className={`mt-0.5 text-xs ${mutedClass}`}>
+                      {new Date(d.created_at).toLocaleDateString(undefined, { dateStyle: "medium" })}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className={sectionCard}>
           <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
@@ -1675,21 +2148,168 @@ export default function CampaignPage() {
               ) : null}
             </div>
 
+            {depositSuccessBanner && (
+              <div
+                className="rounded-2xl border border-emerald-500/40 bg-[color-mix(in_oklab,var(--ui-brand-green)_12%,var(--ui-surface-elev))] p-4 shadow-[var(--ui-shadow-md)]"
+                role="status"
+              >
+                <p className="text-sm font-semibold text-[var(--ui-brand-green-strong)]">Donation sent on-chain</p>
+                <p className="mt-1 text-xs text-[var(--ui-text)]">
+                  Your USDC deposit has been confirmed. Thank you for supporting this campaign{fundAnonymous ? " anonymously" : ""}!
+                </p>
+              </div>
+            )}
+
+            {proofSuccessBanner && (
+              <div
+                className="rounded-2xl border border-emerald-500/40 bg-[color-mix(in_oklab,var(--ui-brand-green)_12%,var(--ui-surface-elev))] p-4 shadow-[var(--ui-shadow-md)]"
+                role="status"
+              >
+                <p className="text-sm font-semibold text-[var(--ui-brand-green-strong)]">Milestone proof submitted</p>
+                <p className="mt-1 text-xs text-[var(--ui-text)]">
+                  Your evidence has been uploaded and is now pending admin review. The admin will verify with volunteers before issuing the EAS attestation.
+                </p>
+              </div>
+            )}
+
             {isConnected && initialized && onChainOk ? (
               <div className={`${sectionCard} border-[color-mix(in_oklab,var(--ui-brand-green)_28%,var(--ui-border))]`}>
-                <TextHeadline as="h2" className="mb-3 text-[var(--ui-text)]">
-                  Fund on-chain
+                <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+                  Fund this campaign
                 </TextHeadline>
-                <div>
-                  <label className={`${labelClass} mb-1`}>Amount (USDC)</label>
-                  <div className="flex flex-wrap gap-2">
+                <p className={`${mutedClass} mb-4 text-xs`}>
+                  USDC on Base. Fund the current open milestone or make a general donation. Future milestones unlock after the organization proves progress and receives an EAS attestation.
+                </p>
+
+                <div className="space-y-4">
+                  {/* Milestone selector */}
+                  <div>
+                    <label className={`${labelClass} mb-1`}>Support milestone</label>
+                    <select
+                      value={fundMilestoneIndex}
+                      onChange={(e) => setFundMilestoneIndex(e.target.value)}
+                      className="w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2.5 app-text focus:border-[var(--ui-brand-green)] focus:outline-none"
+                    >
+                      <option value="general">General (no preference)</option>
+                      {milestoneAmounts?.map((amt, i) => {
+                        const msData = parseMilestoneData(dbCampaign?.milestone_data);
+                        const label = msData[i]?.title?.trim() || `Milestone ${i + 1}`;
+                        const isLocked = i > Number(releasedCount ?? 0n);
+                        const isReleased = Number(releasedCount ?? 0n) > i;
+                        return (
+                          <option key={i} value={String(i)} disabled={isLocked}>
+                            {isLocked ? "\u{1F512} " : isReleased ? "\u2713 " : ""}{label} — {formatUsdc(amt)} USDC{isLocked ? " (locked)" : isReleased ? " (released)" : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {milestoneAmounts && Number(releasedCount ?? 0n) < milestoneAmounts.length && (
+                      <p className={`mt-1.5 text-xs ${mutedClass}`}>
+                        Only milestone {Number(releasedCount ?? 0n) + 1} is open for funding.
+                        {Number(releasedCount ?? 0n) > 0
+                          ? ` Previous milestones were attested and released.`
+                          : ` Future milestones unlock after the current one is attested.`}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Amount */}
+                  <div>
+                    <label className={`${labelClass} mb-1`}>Amount (USDC)</label>
                     <input
                       type="text"
                       value={fundAmount}
                       onChange={(e) => setFundAmount(e.target.value)}
-                      className="min-w-[120px] flex-1 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2.5 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
+                      className="w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2.5 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
                       placeholder="0.00"
                     />
+                  </div>
+
+                  {/* Donor identity: segmented control */}
+                  <div>
+                    <label className={`${labelClass} mb-1.5`}>Appear as</label>
+                    <div className="grid grid-cols-2 gap-0 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] p-1">
+                      <button
+                        type="button"
+                        onClick={() => setFundAnonymous(false)}
+                        className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                          !fundAnonymous
+                            ? "bg-[var(--ui-brand-green)] text-white shadow-sm"
+                            : "text-[var(--ui-muted)] hover:text-[var(--ui-text)]"
+                        }`}
+                      >
+                        Visible Donor
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFundAnonymous(true)}
+                        className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                          fundAnonymous
+                            ? "bg-[var(--ui-surface-elev)] text-[var(--ui-text)] shadow-sm ring-1 ring-[var(--ui-border)]"
+                            : "text-[var(--ui-muted)] hover:text-[var(--ui-text)]"
+                        }`}
+                      >
+                        Anonymous
+                      </button>
+                    </div>
+                    <p className={`mt-1.5 text-xs ${mutedClass}`}>
+                      {fundAnonymous
+                        ? "Your name and avatar will be hidden. On-chain wallet address remains public on the blockchain."
+                        : "Your profile name and avatar will appear in the donor list."}
+                    </p>
+                  </div>
+
+                  {/* Donation preview */}
+                  {fundAmount && (
+                    <div className="rounded-xl border border-dashed border-[var(--ui-border)] bg-[var(--ui-bg)] p-3">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--ui-muted)]">
+                        Preview — how your donation will appear
+                      </p>
+                      <div className="flex items-center gap-3">
+                        {!fundAnonymous && donorProfileAvatar ? (
+                          <img src={donorProfileAvatar} alt="" className="h-8 w-8 rounded-full object-cover" />
+                        ) : (
+                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--ui-border)] text-xs font-bold text-[var(--ui-muted)]">
+                            {fundAnonymous ? "?" : (donorProfileName?.[0]?.toUpperCase() ?? "D")}
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline gap-x-2">
+                            <span className="text-sm font-semibold text-[var(--ui-text)]">
+                              {fundAnonymous ? "Anonymous Donor" : (donorProfileName || "Donor")}
+                            </span>
+                            <span className="text-sm font-medium text-[var(--ui-brand-green)]">
+                              +{fundAmount} USDC
+                            </span>
+                          </div>
+                          {fundMessage.trim() && (
+                            <p className="mt-0.5 truncate text-xs italic text-[var(--ui-muted)]">
+                              &ldquo;{fundMessage.trim()}&rdquo;
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Optional message */}
+                  <div>
+                    <label className={`${labelClass} mb-1`}>Message (optional)</label>
+                    <input
+                      type="text"
+                      value={fundMessage}
+                      onChange={(e) => setFundMessage(e.target.value)}
+                      maxLength={280}
+                      className="w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2.5 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
+                      placeholder="Leave a note for the campaign..."
+                    />
+                    {fundMessage.length > 0 && (
+                      <span className={`mt-1 block text-right text-xs ${mutedClass}`}>{fundMessage.length}/280</span>
+                    )}
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex flex-wrap gap-2 pt-1">
                     {!approveConfirmed ? (
                       <Button
                         variant="primary"
@@ -1698,7 +2318,7 @@ export default function CampaignPage() {
                         disabled={!fundAmount || isPendingApprove || isConfirmingApprove}
                         loading={isPendingApprove || isConfirmingApprove}
                       >
-                        {isPendingApprove || isConfirmingApprove ? "Approve..." : "Approve USDC"}
+                        {isPendingApprove || isConfirmingApprove ? "Approving..." : "1. Approve USDC"}
                       </Button>
                     ) : (
                       <Button
@@ -1708,7 +2328,7 @@ export default function CampaignPage() {
                         disabled={!fundAmount || isPendingDeposit || isConfirmingDeposit}
                         loading={isPendingDeposit || isConfirmingDeposit}
                       >
-                        {isPendingDeposit || isConfirmingDeposit ? "Deposit..." : "Deposit"}
+                        {isPendingDeposit || isConfirmingDeposit ? "Depositing..." : "2. Deposit & Donate"}
                       </Button>
                     )}
                   </div>

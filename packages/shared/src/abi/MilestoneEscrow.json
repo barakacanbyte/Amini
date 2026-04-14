@@ -30,6 +30,11 @@
         "internalType": "uint256"
       },
       {
+        "name": "milestoneIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
         "name": "amount",
         "type": "uint256",
         "internalType": "uint256"
@@ -120,6 +125,43 @@
         "name": "initialized",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getMilestoneDeposited",
+    "inputs": [
+      {
+        "name": "campaignId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "milestoneIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "NO_MILESTONE_PREFERENCE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -251,6 +293,12 @@
         "internalType": "address"
       },
       {
+        "name": "milestoneIndex",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
         "name": "amount",
         "type": "uint256",
         "indexed": false,
@@ -308,6 +356,11 @@
   {
     "type": "error",
     "name": "InvalidMilestoneIndex",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MilestoneLocked",
     "inputs": []
   },
   {

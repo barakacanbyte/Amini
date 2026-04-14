@@ -9,7 +9,72 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ORG_SELECT =
-  "id,wallet,name,description,website_url,country,status,verified_at,official_email,twitter_handle,linkedin_url,ens_name,has_coinbase_verification,logo_url,cover_image_url,tagline,created_at,updated_at";
+  "id,wallet,name,description,website_url,country,status,verified_at,official_email,twitter_handle,linkedin_url,ens_name,has_coinbase_verification,logo_url,cover_image_url,tagline,prior_projects,created_at,updated_at";
+
+const MAX_PRIOR_PROJECTS = 24;
+const PRIOR_TITLE_MAX = 200;
+const PRIOR_SUMMARY_MAX = 800;
+const PRIOR_YEAR_MAX = 32;
+const PRIOR_LINK_MAX = 2048;
+
+function parsePriorProjectsJson(
+  raw: string,
+): { ok: true; value: unknown[] } | { ok: false; message: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, message: "priorProjects JSON is invalid." };
+  }
+  if (!Array.isArray(parsed)) {
+    return { ok: false, message: "priorProjects must be an array." };
+  }
+  if (parsed.length > MAX_PRIOR_PROJECTS) {
+    return { ok: false, message: `At most ${MAX_PRIOR_PROJECTS} past projects allowed.` };
+  }
+  const out: Array<{
+    title: string;
+    summary?: string;
+    year?: string;
+    link_url?: string;
+  }> = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const o = item as Record<string, unknown>;
+    const title = typeof o.title === "string" ? o.title.trim() : "";
+    if (!title) continue;
+    if (title.length > PRIOR_TITLE_MAX) {
+      return {
+        ok: false,
+        message: `Each project title must be at most ${PRIOR_TITLE_MAX} characters.`,
+      };
+    }
+    const row: {
+      title: string;
+      summary?: string;
+      year?: string;
+      link_url?: string;
+    } = { title };
+    if (typeof o.summary === "string" && o.summary.trim()) {
+      row.summary = o.summary.trim().slice(0, PRIOR_SUMMARY_MAX);
+    }
+    if (typeof o.year === "string" && o.year.trim()) {
+      row.year = o.year.trim().slice(0, PRIOR_YEAR_MAX);
+    }
+    if (typeof o.link_url === "string" && o.link_url.trim()) {
+      const u = o.link_url.trim().slice(0, PRIOR_LINK_MAX);
+      if (!/^https?:\/\//i.test(u)) {
+        return {
+          ok: false,
+          message: "Each project link must start with http:// or https://.",
+        };
+      }
+      row.link_url = u;
+    }
+    out.push(row);
+  }
+  return { ok: true, value: out };
+}
 
 export async function GET(
   _req: Request,
@@ -53,6 +118,30 @@ export async function GET(
   let campaigns: OrgCampaignRow[] = [];
   if (campRes.ok) {
     campaigns = (await campRes.json()) as OrgCampaignRow[];
+  }
+
+  if (campaigns.length > 0) {
+    const campIds = campaigns.map((c) => c.id);
+    const depRes = await fetch(
+      `${supabaseUrl}/rest/v1/escrow_deposits?campaign_id=in.(${campIds.join(",")})&select=campaign_id,amount,depositor`,
+      { headers, cache: "no-store" },
+    );
+    if (depRes.ok) {
+      type DepRow = { campaign_id: number; amount: string; depositor: string };
+      const deps = (await depRes.json()) as DepRow[];
+      const raised = new Map<number, bigint>();
+      const donorSets = new Map<number, Set<string>>();
+      for (const d of deps) {
+        raised.set(d.campaign_id, (raised.get(d.campaign_id) ?? 0n) + BigInt(d.amount));
+        const s = donorSets.get(d.campaign_id) ?? new Set();
+        s.add(d.depositor);
+        donorSets.set(d.campaign_id, s);
+      }
+      for (const c of campaigns) {
+        c.total_raised = (raised.get(c.id) ?? 0n).toString();
+        c.donor_count = donorSets.get(c.id)?.size ?? 0;
+      }
+    }
   }
 
   return Response.json({ ok: true, organization, campaigns });
@@ -130,6 +219,15 @@ export async function PATCH(
   if (form.has("twitterHandle")) updates.twitter_handle = ((form.get("twitterHandle") as string) ?? "").trim() || null;
   if (form.has("linkedinUrl")) updates.linkedin_url = ((form.get("linkedinUrl") as string) ?? "").trim() || null;
   if (form.has("ensName")) updates.ens_name = ((form.get("ensName") as string) ?? "").trim() || null;
+
+  if (form.has("priorProjects")) {
+    const rawPrior = String(form.get("priorProjects") ?? "");
+    const parsed = parsePriorProjectsJson(rawPrior);
+    if (!parsed.ok) {
+      return Response.json({ ok: false, message: parsed.message }, { status: 400 });
+    }
+    updates.prior_projects = parsed.value;
+  }
 
   const logoFile = form.get("logo") as File | null;
   if (logoFile && logoFile.size > 0) {

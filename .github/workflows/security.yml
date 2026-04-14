@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Weekly on Monday at 08:00 UTC
     - cron: "0 8 * * 1"
 
 concurrency:
@@ -14,47 +13,34 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PNPM_VERSION: "9"
-  NODE_VERSION: "20"
+  BUN_VERSION: "1.1"
 
 jobs:
-  # ── npm dependency audit ───────────────────────────────────────
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: ${{ env.PNPM_VERSION }}
+          bun-version: ${{ env.BUN_VERSION }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: pnpm audit
-        run: pnpm audit --prod || true
+      - run: bun install --frozen-lockfile
 
       - name: Check for known vulnerabilities
         run: |
-          RESULT=$(pnpm audit --prod --json 2>/dev/null || true)
-          CRITICAL=$(echo "$RESULT" | grep -c '"severity":"critical"' || true)
-          HIGH=$(echo "$RESULT" | grep -c '"severity":"high"' || true)
-          echo "Critical: $CRITICAL, High: $HIGH"
-          if [ "$CRITICAL" -gt 0 ]; then
-            echo "::error::Found $CRITICAL critical vulnerabilities"
+          bun pm audit 2>&1 | tee audit-output.txt || true
+          if grep -qi "critical" audit-output.txt; then
+            echo "::error::Critical vulnerabilities found"
+            cat audit-output.txt >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+          echo "No critical vulnerabilities found" >> "$GITHUB_STEP_SUMMARY"
 
-  # ── Slither static analysis for Solidity ───────────────────────
   slither:
     name: Slither Analysis
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
     permissions:
       contents: read
       security-events: write

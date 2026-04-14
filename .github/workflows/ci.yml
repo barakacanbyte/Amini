@@ -11,36 +11,27 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
-  PNPM_VERSION: "9"
-  FOUNDRY_PROFILE: default
+  BUN_VERSION: "1.1"
 
 jobs:
-  # ── Lint & Format ──────────────────────────────────────────────
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: ${{ env.PNPM_VERSION }}
+          bun-version: ${{ env.BUN_VERSION }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - run: bun install --frozen-lockfile
 
       - name: ESLint
-        run: pnpm lint
+        run: bun lint
 
-      - name: Prettier (check only)
-        run: pnpm exec prettier --check "**/*.{ts,tsx,js,json,md}"
+      - name: Prettier check
+        run: bun exec prettier --check "**/*.{ts,tsx,js,json,md}"
 
-  # ── Build all TypeScript packages ──────────────────────────────
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -48,34 +39,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: ${{ env.PNPM_VERSION }}
+          bun-version: ${{ env.BUN_VERSION }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
+      - run: bun install --frozen-lockfile
 
-      - run: pnpm install --frozen-lockfile
+      - name: Build shared
+        run: bun --filter @amini/shared build
 
-      - name: Build shared + eas-schemas
-        run: |
-          pnpm --filter @amini/shared build
-          pnpm --filter @amini/eas-schemas build
+      - name: Build eas-schemas
+        run: bun --filter @amini/eas-schemas build
 
       - name: Build indexer
-        run: pnpm --filter indexer build
+        run: bun --filter indexer build
 
-      - name: Build frontend (Next.js)
-        run: pnpm --filter frontend build
+      - name: Build frontend
+        run: bun --filter frontend build
         env:
           NEXT_PUBLIC_RPC_URL: "https://sepolia.base.org"
           NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
           NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder"
           NEXT_PUBLIC_XMTP_ENV: "dev"
+          NEXT_PUBLIC_CDP_PROJECT_ID: "placeholder"
 
-  # ── Foundry contract tests ─────────────────────────────────────
   contracts:
     name: Forge Tests
     runs-on: ubuntu-latest
@@ -91,8 +78,8 @@ jobs:
         with:
           version: stable
 
-      - name: forge build
+      - name: Build
         run: forge build --sizes
 
-      - name: forge test
+      - name: Test
         run: forge test -vvv

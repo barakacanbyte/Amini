@@ -60,36 +60,114 @@ contract MilestoneEscrowTest is Test {
         escrow.initializeCampaign(campaignId, address(token), amounts);
     }
 
-    function test_ReleaseMilestone_WithValidAttestation() public {
+    function test_DepositToFirstMilestone_AlwaysAllowed() public {
         vm.startPrank(depositor);
         token.approve(address(escrow), 100e6);
-        escrow.deposit(campaignId, 100e6);
+        escrow.deposit(campaignId, 0, 40e6);
+        vm.stopPrank();
+
+        assertEq(escrow.getMilestoneDeposited(campaignId, 0), 40e6);
+        (, , uint256 totalDeposited, , ) = escrow.getEscrowState(campaignId);
+        assertEq(totalDeposited, 40e6);
+    }
+
+    function test_Revert_DepositToLockedMilestone() public {
+        vm.startPrank(depositor);
+        token.approve(address(escrow), 100e6);
+        vm.expectRevert(MilestoneEscrow.MilestoneLocked.selector);
+        escrow.deposit(campaignId, 1, 60e6);
+        vm.stopPrank();
+    }
+
+    function test_DepositToMilestone1_AfterMilestone0Released() public {
+        vm.startPrank(depositor);
+        token.approve(address(escrow), 100e6);
+        escrow.deposit(campaignId, 0, 40e6);
+        vm.stopPrank();
+
+        bytes memory data = abi.encode(bytes32(campaignId), uint256(0));
+        bytes32 attUid = eas.issueAttestation(SCHEMA_UID, address(beneficiary), data);
+        vm.prank(owner);
+        escrow.releaseMilestone(campaignId, 0, attUid);
+
+        (, , , uint256 releasedCount, ) = escrow.getEscrowState(campaignId);
+        assertEq(releasedCount, 1);
+
+        vm.startPrank(depositor);
+        escrow.deposit(campaignId, 1, 60e6);
+        vm.stopPrank();
+
+        assertEq(escrow.getMilestoneDeposited(campaignId, 1), 60e6);
+    }
+
+    function test_FullFlow_SequentialMilestones() public {
+        vm.startPrank(depositor);
+        token.approve(address(escrow), 100e6);
+        escrow.deposit(campaignId, 0, 40e6);
+        vm.stopPrank();
+
+        bytes memory data = abi.encode(bytes32(campaignId), uint256(0));
+        bytes32 attUid = eas.issueAttestation(SCHEMA_UID, address(beneficiary), data);
+        vm.prank(owner);
+        escrow.releaseMilestone(campaignId, 0, attUid);
+        assertEq(token.balanceOf(beneficiary), 40e6);
+
+        vm.startPrank(depositor);
+        escrow.deposit(campaignId, 1, 60e6);
+        vm.stopPrank();
+
+        data = abi.encode(bytes32(campaignId), uint256(1));
+        attUid = eas.issueAttestation(SCHEMA_UID, address(beneficiary), data);
+        vm.prank(owner);
+        escrow.releaseMilestone(campaignId, 1, attUid);
+        assertEq(token.balanceOf(beneficiary), 100e6);
+
+        (, , , uint256 releasedCount, ) = escrow.getEscrowState(campaignId);
+        assertEq(releasedCount, 2);
+    }
+
+    function test_Revert_ReleaseByNonOwner() public {
+        vm.startPrank(depositor);
+        token.approve(address(escrow), 100e6);
+        escrow.deposit(campaignId, 0, 40e6);
         vm.stopPrank();
 
         bytes memory data = abi.encode(bytes32(campaignId), uint256(0));
         bytes32 attUid = eas.issueAttestation(SCHEMA_UID, address(beneficiary), data);
 
+        vm.prank(depositor);
+        vm.expectRevert();
         escrow.releaseMilestone(campaignId, 0, attUid);
+    }
 
-        assertEq(token.balanceOf(beneficiary), 40e6);
-        (, , , uint256 releasedCount, ) = escrow.getEscrowState(campaignId);
-        assertEq(releasedCount, 1);
+    function test_DepositWithNoMilestonePreference() public {
+        uint256 noMilestone = type(uint256).max;
+        vm.startPrank(depositor);
+        token.approve(address(escrow), 100e6);
+        escrow.deposit(campaignId, noMilestone, 100e6);
+        vm.stopPrank();
 
-        data = abi.encode(bytes32(campaignId), uint256(1));
-        attUid = eas.issueAttestation(SCHEMA_UID, address(beneficiary), data);
-        escrow.releaseMilestone(campaignId, 1, attUid);
+        (, , uint256 totalDeposited, , ) = escrow.getEscrowState(campaignId);
+        assertEq(totalDeposited, 100e6);
+        assertEq(escrow.getMilestoneDeposited(campaignId, 0), 0);
+        assertEq(escrow.getMilestoneDeposited(campaignId, 1), 0);
+    }
 
-        assertEq(token.balanceOf(beneficiary), 100e6);
-        (, , , uint256 releasedCount2, ) = escrow.getEscrowState(campaignId);
-        assertEq(releasedCount2, 2);
+    function test_Revert_DepositInvalidMilestoneIndex() public {
+        vm.startPrank(depositor);
+        token.approve(address(escrow), 100e6);
+        vm.expectRevert(MilestoneEscrow.InvalidMilestoneIndex.selector);
+        escrow.deposit(campaignId, 5, 100e6);
+        vm.stopPrank();
     }
 
     function test_Revert_ReleaseWithoutAttestation() public {
         vm.prank(depositor);
         token.approve(address(escrow), 100e6);
         vm.prank(depositor);
-        escrow.deposit(campaignId, 100e6);
+        escrow.deposit(campaignId, 0, 100e6);
 
+        vm.prank(owner);
         vm.expectRevert(MilestoneEscrow.InvalidAttestation.selector);
         escrow.releaseMilestone(campaignId, 0, bytes32(0));
     }

@@ -41,9 +41,13 @@ CREATE TABLE public.organizations (
   logo_url text,
   cover_image_url text,
   tagline text,
+  prior_projects jsonb NOT NULL DEFAULT '[]'::jsonb,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
+
+COMMENT ON COLUMN public.organizations.prior_projects IS
+  'Org-submitted track record off Amini: JSON array of { title, summary?, year?, link_url? }.';
 
 CREATE TABLE public.organization_posts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -110,6 +114,10 @@ CREATE TABLE public.organization_post_shares (
 
 CREATE INDEX idx_org_post_shares_post_created
   ON public.organization_post_shares (post_id, created_at DESC);
+
+CREATE UNIQUE INDEX uniq_org_post_shares_post_wallet
+  ON public.organization_post_shares (post_id, wallet)
+  WHERE wallet IS NOT NULL;
 
 -- === Campaigns (indexer + optional org link + explorer metadata) ===
 CREATE TABLE public.campaigns (
@@ -183,9 +191,19 @@ CREATE TABLE public.escrow_deposits (
   campaign_id bigint NOT NULL REFERENCES public.campaigns(id),
   depositor text NOT NULL,
   amount numeric NOT NULL,
+  milestone_index smallint,
   tx_hash text NOT NULL UNIQUE,
   block_number int NOT NULL,
   created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE public.donation_preferences (
+  tx_hash text PRIMARY KEY,
+  donor_wallet text NOT NULL,
+  is_anonymous boolean NOT NULL DEFAULT false,
+  donor_message text CHECK (donor_message IS NULL OR char_length(donor_message) <= 280),
+  display_name_snapshot text,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE public.milestone_releases (
@@ -208,6 +226,32 @@ CREATE TABLE public.attestations (
   created_at timestamptz DEFAULT now()
 );
 
+-- === Milestone proofs (org submits evidence, admin reviews) ===
+CREATE TYPE proof_status AS ENUM ('submitted', 'under_review', 'approved', 'rejected');
+
+CREATE TABLE public.milestone_proofs (
+  id bigserial PRIMARY KEY,
+  campaign_id bigint NOT NULL REFERENCES public.campaigns(id) ON DELETE CASCADE,
+  milestone_index smallint NOT NULL,
+  submitter_wallet text NOT NULL,
+  title text NOT NULL CHECK (char_length(title) > 0 AND char_length(title) <= 200),
+  description text NOT NULL CHECK (char_length(description) > 0 AND char_length(description) <= 4000),
+  evidence_urls text[] NOT NULL DEFAULT '{}',
+  ipfs_cid text,
+  ipfs_url text,
+  status proof_status NOT NULL DEFAULT 'submitted',
+  reviewer_wallet text,
+  reviewer_notes text CHECK (reviewer_notes IS NULL OR char_length(reviewer_notes) <= 2000),
+  reviewed_at timestamptz,
+  attestation_uid text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_milestone_proofs_campaign ON public.milestone_proofs (campaign_id, milestone_index);
+CREATE INDEX idx_milestone_proofs_status ON public.milestone_proofs (status, created_at DESC);
+CREATE INDEX idx_milestone_proofs_submitter ON public.milestone_proofs (submitter_wallet);
+
 -- === Impact posts (IPFS / Filebase) ===
 CREATE TABLE public.impact_posts (
   id bigserial PRIMARY KEY,
@@ -226,6 +270,9 @@ CREATE TABLE public.impact_posts (
 );
 
 CREATE INDEX idx_escrow_deposits_campaign ON public.escrow_deposits(campaign_id);
+CREATE INDEX idx_escrow_deposits_milestone ON public.escrow_deposits(campaign_id, milestone_index);
+CREATE INDEX idx_donation_prefs_wallet ON public.donation_preferences(donor_wallet);
+CREATE INDEX idx_donation_prefs_created ON public.donation_preferences(created_at DESC);
 CREATE INDEX idx_milestone_releases_campaign ON public.milestone_releases(campaign_id);
 CREATE INDEX idx_impact_posts_campaign ON public.impact_posts(campaign_id);
 
@@ -301,6 +348,13 @@ CREATE INDEX idx_reputation_score ON public.reputation_scores(score DESC);
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organization_posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_post_media ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_post_likes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_post_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_post_shares ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.escrow_deposits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.donation_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.milestone_proofs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
 CREATE POLICY "Organizations are viewable by everyone" ON public.organizations FOR SELECT USING (true);
@@ -314,3 +368,137 @@ CREATE POLICY "Org posts viewable for approved orgs" ON public.organization_post
       AND o.status = 'approved'
   )
 );
+
+CREATE POLICY "Org post media viewable for approved orgs" ON public.organization_post_media FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+    FROM public.organization_posts p
+    JOIN public.organizations o ON o.id = p.organization_id
+    WHERE p.id = organization_post_media.post_id
+      AND o.status = 'approved'
+  )
+);
+
+CREATE POLICY "Org post likes viewable for approved orgs" ON public.organization_post_likes FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+    FROM public.organization_posts p
+    JOIN public.organizations o ON o.id = p.organization_id
+    WHERE p.id = organization_post_likes.post_id
+      AND o.status = 'approved'
+  )
+);
+
+CREATE POLICY "Org post comments viewable for approved orgs" ON public.organization_post_comments FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+    FROM public.organization_posts p
+    JOIN public.organizations o ON o.id = p.organization_id
+    WHERE p.id = organization_post_comments.post_id
+      AND o.status = 'approved'
+  )
+);
+
+CREATE POLICY "Org post shares viewable for approved orgs" ON public.organization_post_shares FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+    FROM public.organization_posts p
+    JOIN public.organizations o ON o.id = p.organization_id
+    WHERE p.id = organization_post_shares.post_id
+      AND o.status = 'approved'
+  )
+);
+
+CREATE POLICY "Escrow deposits are viewable by everyone" ON public.escrow_deposits FOR SELECT USING (true);
+CREATE POLICY "Milestone proofs are viewable by everyone" ON public.milestone_proofs FOR SELECT USING (true);
+CREATE POLICY "Donation preferences are viewable by everyone" ON public.donation_preferences FOR SELECT USING (true);
+CREATE POLICY "Donors can insert own preferences" ON public.donation_preferences FOR INSERT WITH CHECK (true);
+-- Activity feed: scored ranking + cursor pagination
+-- Uses correlated sub-selects so PG leverages per-post indexes.
+CREATE OR REPLACE FUNCTION public.get_activity_feed(
+  viewer_wallet text DEFAULT NULL,
+  limit_count  int  DEFAULT 20,
+  cursor_score float DEFAULT NULL,
+  cursor_id    uuid  DEFAULT NULL
+)
+RETURNS TABLE (
+  id               uuid,
+  organization_id  uuid,
+  author_wallet    text,
+  body             text,
+  created_at       timestamptz,
+  updated_at       timestamptz,
+  org_name         text,
+  org_logo_url     text,
+  org_wallet       text,
+  like_count       bigint,
+  comment_count    bigint,
+  share_count      bigint,
+  liked_by_viewer  boolean,
+  media            jsonb,
+  score            float
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+AS $$
+  SELECT
+    p.id, p.organization_id, p.author_wallet, p.body,
+    p.created_at, p.updated_at,
+    o.name AS org_name, o.logo_url AS org_logo_url, o.wallet AS org_wallet,
+    (SELECT count(*) FROM public.organization_post_likes   lk WHERE lk.post_id = p.id) AS like_count,
+    (SELECT count(*) FROM public.organization_post_comments cm WHERE cm.post_id = p.id) AS comment_count,
+    (SELECT count(*) FROM public.organization_post_shares   sh WHERE sh.post_id = p.id) AS share_count,
+    EXISTS (SELECT 1 FROM public.organization_post_likes vl WHERE vl.post_id = p.id AND vl.wallet = viewer_wallet) AS liked_by_viewer,
+    COALESCE((SELECT jsonb_agg(jsonb_build_object('id',md.id,'cid',md.cid,'url',md.url,'content_type',md.content_type,'width',md.width,'height',md.height) ORDER BY md.sort_order) FROM public.organization_post_media md WHERE md.post_id = p.id), '[]'::jsonb) AS media,
+    ((
+      (SELECT count(*) FROM public.organization_post_likes   lk2 WHERE lk2.post_id = p.id)*1.0
+    + (SELECT count(*) FROM public.organization_post_comments cm2 WHERE cm2.post_id = p.id)*2.0
+    + (SELECT count(*) FROM public.organization_post_shares   sh2 WHERE sh2.post_id = p.id)*3.0
+    + 1.0
+    ) / POWER(2.0, EXTRACT(EPOCH FROM (now()-p.created_at))/172800.0))::float AS score
+  FROM public.organization_posts p
+  JOIN public.organizations o ON o.id = p.organization_id AND o.status = 'approved'
+  WHERE CASE
+    WHEN cursor_score IS NOT NULL AND cursor_id IS NOT NULL THEN
+      ((( (SELECT count(*) FROM public.organization_post_likes lk3 WHERE lk3.post_id=p.id)*1.0
+        + (SELECT count(*) FROM public.organization_post_comments cm3 WHERE cm3.post_id=p.id)*2.0
+        + (SELECT count(*) FROM public.organization_post_shares sh3 WHERE sh3.post_id=p.id)*3.0
+        + 1.0) / POWER(2.0,EXTRACT(EPOCH FROM (now()-p.created_at))/172800.0))::float < cursor_score)
+      OR (((
+        (SELECT count(*) FROM public.organization_post_likes lk4 WHERE lk4.post_id=p.id)*1.0
+        + (SELECT count(*) FROM public.organization_post_comments cm4 WHERE cm4.post_id=p.id)*2.0
+        + (SELECT count(*) FROM public.organization_post_shares sh4 WHERE sh4.post_id=p.id)*3.0
+        + 1.0) / POWER(2.0,EXTRACT(EPOCH FROM (now()-p.created_at))/172800.0))::float = cursor_score AND p.id < cursor_id)
+    ELSE TRUE
+  END
+  ORDER BY score DESC, p.id DESC
+  LIMIT LEAST(limit_count, 50);
+$$;
+
+-- Fetch a single post by ID (permalink / share deep-link).
+CREATE OR REPLACE FUNCTION public.get_single_post(
+  target_post_id uuid,
+  viewer_wallet  text DEFAULT NULL
+)
+RETURNS TABLE (
+  id uuid, organization_id uuid, author_wallet text, body text,
+  created_at timestamptz, updated_at timestamptz,
+  org_name text, org_logo_url text, org_wallet text,
+  like_count bigint, comment_count bigint, share_count bigint,
+  liked_by_viewer boolean, media jsonb
+)
+LANGUAGE sql STABLE SECURITY DEFINER
+AS $$
+  SELECT
+    p.id, p.organization_id, p.author_wallet, p.body,
+    p.created_at, p.updated_at,
+    o.name AS org_name, o.logo_url AS org_logo_url, o.wallet AS org_wallet,
+    (SELECT count(*) FROM public.organization_post_likes   lk WHERE lk.post_id = p.id) AS like_count,
+    (SELECT count(*) FROM public.organization_post_comments cm WHERE cm.post_id = p.id) AS comment_count,
+    (SELECT count(*) FROM public.organization_post_shares   sh WHERE sh.post_id = p.id) AS share_count,
+    EXISTS (SELECT 1 FROM public.organization_post_likes vl WHERE vl.post_id = p.id AND vl.wallet = viewer_wallet) AS liked_by_viewer,
+    COALESCE((SELECT jsonb_agg(jsonb_build_object('id',md.id,'cid',md.cid,'url',md.url,'content_type',md.content_type,'width',md.width,'height',md.height) ORDER BY md.sort_order) FROM public.organization_post_media md WHERE md.post_id = p.id), '[]'::jsonb) AS media
+  FROM public.organization_posts p
+  JOIN public.organizations o ON o.id = p.organization_id AND o.status = 'approved'
+  WHERE p.id = target_post_id
+  LIMIT 1;
+$$;

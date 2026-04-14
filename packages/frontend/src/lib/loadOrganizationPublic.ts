@@ -5,7 +5,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ORG_SELECT =
-  "id,wallet,name,description,website_url,country,status,verified_at,official_email,twitter_handle,linkedin_url,ens_name,has_coinbase_verification,logo_url,cover_image_url,tagline,created_at,updated_at";
+  "id,wallet,name,description,website_url,country,status,verified_at,official_email,twitter_handle,linkedin_url,ens_name,has_coinbase_verification,logo_url,cover_image_url,tagline,prior_projects,created_at,updated_at";
 
 export type OrganizationPageData = {
   organization: OrganizationPublic;
@@ -49,6 +49,30 @@ export async function loadOrganizationPublicPage(orgId: string): Promise<Organiz
   let campaigns: OrgCampaignRow[] = [];
   if (campRes.ok) {
     campaigns = (await campRes.json()) as OrgCampaignRow[];
+  }
+
+  if (campaigns.length > 0) {
+    const campIds = campaigns.map((c) => c.id);
+    const depRes = await fetch(
+      `${supabaseUrl}/rest/v1/escrow_deposits?campaign_id=in.(${campIds.join(",")})&select=campaign_id,amount,depositor`,
+      { headers, cache: "no-store" },
+    );
+    if (depRes.ok) {
+      type DepRow = { campaign_id: number; amount: string; depositor: string };
+      const deps = (await depRes.json()) as DepRow[];
+      const raised = new Map<number, bigint>();
+      const donorSets = new Map<number, Set<string>>();
+      for (const d of deps) {
+        raised.set(d.campaign_id, (raised.get(d.campaign_id) ?? 0n) + BigInt(d.amount));
+        const s = donorSets.get(d.campaign_id) ?? new Set();
+        s.add(d.depositor);
+        donorSets.set(d.campaign_id, s);
+      }
+      for (const c of campaigns) {
+        c.total_raised = (raised.get(c.id) ?? 0n).toString();
+        c.donor_count = donorSets.get(c.id)?.size ?? 0;
+      }
+    }
   }
 
   return { organization, campaigns };

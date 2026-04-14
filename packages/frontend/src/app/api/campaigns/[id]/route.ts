@@ -85,7 +85,7 @@ export async function GET(
 
     const [depRes, relRes, impactRes, commentsRes] = await Promise.all([
       fetch(
-        `${supabaseUrl}/rest/v1/escrow_deposits?select=tx_hash,depositor,amount,block_number,created_at&campaign_id=eq.${campaignId}&order=id.desc&limit=100`,
+        `${supabaseUrl}/rest/v1/escrow_deposits?select=tx_hash,depositor,amount,milestone_index,block_number,created_at&campaign_id=eq.${campaignId}&order=id.desc&limit=100`,
         { headers, cache: "no-store" },
       ),
       fetch(
@@ -102,10 +102,71 @@ export async function GET(
       ),
     ]);
 
-    const deposits = depRes.ok ? ((await depRes.json()) as unknown[]) : [];
+    type DepositRow = {
+      tx_hash: string;
+      depositor: string;
+      amount: string;
+      milestone_index: number | null;
+      block_number: number;
+      created_at: string;
+    };
+    const deposits: DepositRow[] = depRes.ok ? ((await depRes.json()) as DepositRow[]) : [];
     const releases = relRes.ok ? ((await relRes.json()) as unknown[]) : [];
     const impactPosts = impactRes.ok ? ((await impactRes.json()) as unknown[]) : [];
     const comments = commentsRes.ok ? ((await commentsRes.json()) as unknown[]) : [];
+
+    // Build donor list by joining deposits with preferences and profiles
+    type DonorItem = {
+      tx_hash: string;
+      amount: string;
+      milestone_index: number | null;
+      created_at: string;
+      is_anonymous: boolean;
+      display_name: string | null;
+      avatar_url: string | null;
+      donor_message: string | null;
+    };
+    let donors: DonorItem[] = [];
+
+    if (deposits.length > 0) {
+      const txHashes = deposits.map((d) => d.tx_hash);
+      const wallets = [...new Set(deposits.map((d) => d.depositor))];
+
+      const [prefsRes, profilesRes] = await Promise.all([
+        fetch(
+          `${supabaseUrl}/rest/v1/donation_preferences?tx_hash=in.(${txHashes.map(encodeURIComponent).join(",")})&select=tx_hash,is_anonymous,donor_message,display_name_snapshot`,
+          { headers, cache: "no-store" },
+        ),
+        fetch(
+          `${supabaseUrl}/rest/v1/profiles?wallet=in.(${wallets.map(encodeURIComponent).join(",")})&select=wallet,name,avatar_url`,
+          { headers, cache: "no-store" },
+        ),
+      ]);
+
+      type PrefRow = { tx_hash: string; is_anonymous: boolean; donor_message: string | null; display_name_snapshot: string | null };
+      type ProfileRow = { wallet: string; name: string | null; avatar_url: string | null };
+      const prefs: PrefRow[] = prefsRes.ok ? await prefsRes.json() as PrefRow[] : [];
+      const profiles: ProfileRow[] = profilesRes.ok ? await profilesRes.json() as ProfileRow[] : [];
+
+      const prefMap = new Map(prefs.map((p) => [p.tx_hash, p]));
+      const profileMap = new Map(profiles.map((p) => [p.wallet.toLowerCase(), p]));
+
+      donors = deposits.map((d) => {
+        const pref = prefMap.get(d.tx_hash);
+        const profile = profileMap.get(d.depositor.toLowerCase());
+        const isAnon = pref?.is_anonymous ?? false;
+        return {
+          tx_hash: d.tx_hash,
+          amount: d.amount,
+          milestone_index: d.milestone_index,
+          created_at: d.created_at,
+          is_anonymous: isAnon,
+          display_name: isAnon ? null : (pref?.display_name_snapshot || profile?.name || null),
+          avatar_url: isAnon ? null : (profile?.avatar_url || null),
+          donor_message: pref?.donor_message ?? null,
+        };
+      });
+    }
 
     return Response.json({
       ok: true,
@@ -115,6 +176,7 @@ export async function GET(
       releases,
       impactPosts,
       comments,
+      donors,
     });
   } catch (e) {
     return Response.json(

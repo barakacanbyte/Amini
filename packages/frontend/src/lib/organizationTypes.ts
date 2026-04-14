@@ -1,3 +1,11 @@
+/** Self-reported work done before or outside Amini (stored as JSON on the org row). */
+export type OrgPriorProject = {
+  title: string;
+  summary?: string;
+  year?: string;
+  link_url?: string;
+};
+
 export type OrganizationPublic = {
   id: string;
   wallet: string;
@@ -15,6 +23,8 @@ export type OrganizationPublic = {
   logo_url: string | null;
   cover_image_url: string | null;
   tagline: string | null;
+  /** Parsed from `prior_projects` jsonb; may be absent on older rows. */
+  prior_projects?: OrgPriorProject[] | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -29,6 +39,22 @@ export type OrgCampaignRow = {
   target_amount: string | number | null;
   region: string | null;
   cause: string | null;
+  /** Aggregate from escrow_deposits — set by loadOrganizationPublic. */
+  total_raised?: string | null;
+  /** Distinct depositor count — set by loadOrganizationPublic. */
+  donor_count?: number | null;
+};
+
+/** A single entry in the public donor list for a campaign / milestone. */
+export type DonorListItem = {
+  tx_hash: string;
+  amount: string;
+  milestone_index: number | null;
+  created_at: string;
+  is_anonymous: boolean;
+  display_name: string | null;
+  avatar_url: string | null;
+  donor_message: string | null;
 };
 
 export type OrganizationPostRow = {

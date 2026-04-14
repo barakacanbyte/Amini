@@ -24,7 +24,8 @@ const NAV_ITEMS = [
   { href: "/#overview", label: "Overview", match: (path: string) => path === "/" },
   { href: "/dashboard/donor", label: "Dashboard", match: (path: string) => path.startsWith("/dashboard") },
   { href: "/campaigns", label: "Campaigns", match: (path: string) => path.startsWith("/campaigns") },
-  { href: "/explorer", label: "Activity feed", match: (path: string) => path === "/explorer" },
+  { href: "/activity", label: "Activity feed", match: (path: string) => path === "/activity" },
+  { href: "/explorer", label: "Explorer", match: (path: string) => path === "/explorer" },
 ] as const;
 
 const navBaseClass =

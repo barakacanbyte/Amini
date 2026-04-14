@@ -69,6 +69,18 @@ export async function POST(
     if (!idResult.ok) return Response.json({ ok: false, message: idResult.message }, { status: 401 });
   }
 
+  // Dedupe per-wallet shares: if a wallet is provided and already shared, do not count again.
+  if (wallet) {
+    const existingRes = await fetch(
+      `${supabaseUrl}/rest/v1/organization_post_shares?post_id=eq.${encodeURIComponent(postId)}&wallet=eq.${encodeURIComponent(wallet)}&select=id&limit=1`,
+      { headers, cache: "no-store" },
+    );
+    if (existingRes.ok) {
+      const rows = (await existingRes.json()) as Array<{ id: string }>;
+      if (rows[0]?.id) return Response.json({ ok: true, counted: false });
+    }
+  }
+
   const ins = await fetch(`${supabaseUrl}/rest/v1/organization_post_shares`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
@@ -76,8 +88,15 @@ export async function POST(
   });
   if (!ins.ok) {
     const t = await ins.text();
+    // If uniqueness is enforced for (post_id, wallet), treat conflicts as already-counted.
+    if (
+      wallet &&
+      (t.toLowerCase().includes("duplicate key") || t.includes("uniq_org_post_shares_post_wallet"))
+    ) {
+      return Response.json({ ok: true, counted: false });
+    }
     return Response.json({ ok: false, message: "Failed to record share: " + t }, { status: 502 });
   }
-  return Response.json({ ok: true });
+  return Response.json({ ok: true, counted: true });
 }
 

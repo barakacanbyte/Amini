@@ -31,6 +31,7 @@ import type {
   OrganizationPostCommentRow,
   OrganizationPublic,
   OrgCampaignRow,
+  OrgPriorProject,
   OrganizationPostWithExtras,
 } from "@/lib/organizationTypes";
 import {
@@ -79,6 +80,31 @@ const chipClass =
 
 const fieldInputClass =
   "w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-sm text-[var(--ui-text)] placeholder:text-[var(--ui-muted)] outline-none focus-visible:border-[var(--ui-brand-green)] focus-visible:ring-2 focus-visible:ring-[var(--ui-focus-ring)]";
+
+const MAX_PRIOR_PROJECTS_UI = 24;
+
+function normalizePriorProjects(raw: unknown): OrgPriorProject[] {
+  if (!Array.isArray(raw)) return [];
+  const out: OrgPriorProject[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const title = typeof o.title === "string" ? o.title.trim() : "";
+    if (!title) continue;
+    const row: OrgPriorProject = { title: title.slice(0, 200) };
+    if (typeof o.summary === "string" && o.summary.trim()) {
+      row.summary = o.summary.trim().slice(0, 800);
+    }
+    if (typeof o.year === "string" && o.year.trim()) {
+      row.year = o.year.trim().slice(0, 32);
+    }
+    if (typeof o.link_url === "string" && o.link_url.trim()) {
+      row.link_url = o.link_url.trim().slice(0, 2048);
+    }
+    out.push(row);
+  }
+  return out;
+}
 
 function goalLabel(target: string | number | null | undefined): string | null {
   if (target == null || target === "") return null;
@@ -133,6 +159,9 @@ export function OrganizationProfileClient({
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [priorProjects, setPriorProjects] = useState<OrgPriorProject[]>(() =>
+    normalizePriorProjects(initialOrganization.prior_projects),
+  );
 
   const [postDraft, setPostDraft] = useState("");
   const [posting, setPosting] = useState(false);
@@ -146,11 +175,16 @@ export function OrganizationProfileClient({
   const [comments, setComments] = useState<OrganizationPostCommentRow[]>([]);
   const [commentDraft, setCommentDraft] = useState("");
   const [commentPosting, setCommentPosting] = useState(false);
+  const [replyTo, setReplyTo] = useState<OrganizationPostCommentRow | null>(null);
 
   const [origin, setOrigin] = useState("");
   const [copyHint, setCopyHint] = useState<string | null>(null);
+  const [postCopyHint, setPostCopyHint] = useState<string | null>(null);
   const [canNativeShare, setCanNativeShare] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [postShareOpen, setPostShareOpen] = useState(false);
+  const [postShareId, setPostShareId] = useState<string | null>(null);
+  const [postShareUrl, setPostShareUrl] = useState<string>("");
 
   useEffect(() => {
     setOrigin(typeof window !== "undefined" ? window.location.origin : "");
@@ -160,11 +194,21 @@ export function OrganizationProfileClient({
   }, []);
 
   const shareUrl = origin ? `${origin}/organizations/${orgId}` : "";
+  const featuredCampaign = useMemo(() => campaigns[0] ?? null, [campaigns]);
+  const savedPriorProjects = useMemo(
+    () => normalizePriorProjects(org.prior_projects),
+    [org.prior_projects],
+  );
   const shareBlurb = useMemo(() => organizationShareBlurb(org), [org.name, org.tagline, org.description]);
   const socialLinks = useMemo(() => {
     if (!shareUrl) return null;
     return buildSocialShareUrls(shareUrl, shareBlurb, `${org.name} on Amini`);
   }, [shareUrl, shareBlurb, org.name]);
+
+  const postSocialLinks = useMemo(() => {
+    if (!postShareUrl) return null;
+    return buildSocialShareUrls(postShareUrl, shareBlurb, `${org.name} update on Amini`);
+  }, [postShareUrl, shareBlurb, org.name]);
 
   const copyShareLink = useCallback(async () => {
     if (!shareUrl) return;
@@ -177,6 +221,18 @@ export function OrganizationProfileClient({
       window.setTimeout(() => setCopyHint(null), 3500);
     }
   }, [shareUrl]);
+
+  const copyPostShareLink = useCallback(async () => {
+    if (!postShareUrl) return;
+    try {
+      await navigator.clipboard.writeText(postShareUrl);
+      setPostCopyHint("Copied to clipboard.");
+      window.setTimeout(() => setPostCopyHint(null), 2500);
+    } catch {
+      setPostCopyHint("Could not copy. Select the link manually.");
+      window.setTimeout(() => setPostCopyHint(null), 3500);
+    }
+  }, [postShareUrl]);
 
   const nativeShare = useCallback(async () => {
     if (!shareUrl || !canNativeShare) return;
@@ -191,6 +247,19 @@ export function OrganizationProfileClient({
     }
   }, [shareUrl, canNativeShare, org.name, shareBlurb]);
 
+  const nativeSharePost = useCallback(async () => {
+    if (!postShareUrl || !canNativeShare) return;
+    try {
+      await navigator.share({
+        title: org.name,
+        text: shareBlurb,
+        url: postShareUrl,
+      });
+    } catch {
+      /* user cancelled or share failed */
+    }
+  }, [postShareUrl, canNativeShare, org.name, shareBlurb]);
+
   const resetForm = useCallback(() => {
     setName(org.name);
     setTagline(org.tagline ?? "");
@@ -203,6 +272,7 @@ export function OrganizationProfileClient({
     setCoverFile(null);
     setLogoPreview(null);
     setCoverPreview(null);
+    setPriorProjects(normalizePriorProjects(org.prior_projects));
   }, [org]);
 
   useEffect(() => {
@@ -285,6 +355,16 @@ export function OrganizationProfileClient({
       fd.append("signatureTimestamp", auth.signatureTimestamp);
       if (auth.cdpAccessToken) fd.append("cdpAccessToken", auth.cdpAccessToken);
 
+      const priorPayload = priorProjects
+        .filter((p) => p.title.trim())
+        .map((p) => ({
+          title: p.title.trim(),
+          ...(p.summary?.trim() ? { summary: p.summary.trim() } : {}),
+          ...(p.year?.trim() ? { year: p.year.trim() } : {}),
+          ...(p.link_url?.trim() ? { link_url: p.link_url.trim() } : {}),
+        }));
+      fd.append("priorProjects", JSON.stringify(priorPayload));
+
       const res = await fetch(`/api/organizations/${orgId}`, { method: "PATCH", body: fd });
       const json = await res.json();
       if (!json.ok) throw new Error(json.message ?? "Save failed");
@@ -297,6 +377,7 @@ export function OrganizationProfileClient({
         setCountry(json.organization.country ?? "");
         setTwitterHandle(json.organization.twitter_handle ?? "");
         setLinkedinUrl(json.organization.linkedin_url ?? "");
+        setPriorProjects(normalizePriorProjects(json.organization.prior_projects));
       }
       setLogoFile(null);
       setCoverFile(null);
@@ -408,6 +489,7 @@ export function OrganizationProfileClient({
       setCommentsOpenFor(postId);
       setComments([]);
       setCommentDraft("");
+      setReplyTo(null);
       setCommentsLoading(true);
       try {
         const res = await fetch(`/api/organizations/${orgId}/posts/${postId}/comments?limit=100`);
@@ -441,6 +523,7 @@ export function OrganizationProfileClient({
         body: JSON.stringify({
           wallet: w,
           body,
+          ...(replyTo?.id ? { parentId: replyTo.id } : {}),
           signature: auth.signature,
           signatureTimestamp: auth.signatureTimestamp,
           ...(auth.cdpAccessToken ? { cdpAccessToken: auth.cdpAccessToken } : {}),
@@ -460,6 +543,7 @@ export function OrganizationProfileClient({
         );
       }
       setCommentDraft("");
+      setReplyTo(null);
     } catch (e) {
       setMessage({ kind: "err", text: (e as Error).message });
     } finally {
@@ -474,30 +558,45 @@ export function OrganizationProfileClient({
     buildAminiVerificationAuth,
     signMessageAsync,
     getCdpAccessToken,
+    replyTo,
   ]);
 
   const sharePost = useCallback(
     async (postId: string) => {
-      const url = origin ? `${origin}/organizations/${orgId}#post-${postId}` : "";
+      const url = origin ? `${origin}/activity?post=${postId}` : "";
       if (!url) return;
-      // Record share in background (non-blocking)
-      if (address && isConnected) {
-        try {
-          const w = address.toLowerCase();
+      setPostShareId(postId);
+      setPostShareUrl(url);
+      setPostCopyHint(null);
+      setPostShareOpen(true);
+    },
+    [origin],
+  );
+
+  const recordPostShare = useCallback(
+    async (postId: string) => {
+      try {
+        const w = address && isConnected ? address.toLowerCase() : "";
+        const payload: Record<string, unknown> = {};
+        if (w) {
           const auth = await buildAminiVerificationAuth("Share Organization Post", w, {
             signMessageAsync,
             getCdpAccessToken,
           });
-          fetch(`/api/organizations/${orgId}/posts/${postId}/shares`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              wallet: w,
-              signature: auth.signature,
-              signatureTimestamp: auth.signatureTimestamp,
-              ...(auth.cdpAccessToken ? { cdpAccessToken: auth.cdpAccessToken } : {}),
-            }),
-          }).catch(() => {});
+          payload.wallet = w;
+          payload.signature = auth.signature;
+          payload.signatureTimestamp = auth.signatureTimestamp;
+          if (auth.cdpAccessToken) payload.cdpAccessToken = auth.cdpAccessToken;
+        }
+
+        const res = await fetch(`/api/organizations/${orgId}/posts/${postId}/shares`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; counted?: boolean };
+        if (!json.ok) return;
+        if (json.counted) {
           setPosts((prev) =>
             prev.map((p) =>
               p.id !== postId
@@ -505,37 +604,12 @@ export function OrganizationProfileClient({
                 : { ...p, engagement: { ...p.engagement, share_count: p.engagement.share_count + 1 } },
             ),
           );
-        } catch {
-          /* ignore */
         }
-      }
-      if (canNativeShare && typeof navigator !== "undefined") {
-        try {
-          await navigator.share({ title: org.name, text: shareBlurb, url });
-          return;
-        } catch {
-          /* fall back */
-        }
-      }
-      try {
-        await navigator.clipboard.writeText(url);
-        setMessage({ kind: "ok", text: "Post link copied." });
       } catch {
-        setMessage({ kind: "err", text: "Could not copy post link." });
+        /* ignore */
       }
     },
-    [
-      origin,
-      orgId,
-      address,
-      isConnected,
-      buildAminiVerificationAuth,
-      signMessageAsync,
-      getCdpAccessToken,
-      canNativeShare,
-      org.name,
-      shareBlurb,
-    ],
+    [address, isConnected, orgId, buildAminiVerificationAuth, signMessageAsync, getCdpAccessToken],
   );
 
   const deletePost = async (postId: string) => {
@@ -606,42 +680,58 @@ export function OrganizationProfileClient({
     <main className="app-page pt-24 pb-16">
       <div className="mx-auto w-full max-w-5xl px-4">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <TextCaption className="mb-1 block uppercase tracking-wider text-[var(--ui-muted)]">
-              Organization
-            </TextCaption>
-            <TextTitle2 as="h1" className="text-[var(--ui-text)]">
-              {org.name}
-            </TextTitle2>
-            <div className="mt-2 flex flex-wrap gap-2">{statusTag}</div>
-          </div>
-          {isOwner ? (
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-1">
-              <Button
-                type="button"
-                variant={mode === "preview" ? "primary" : "secondary"}
-                className="!min-h-9"
-                onClick={() => {
-                  setMode("preview");
-                  resetForm();
-                  setMessage(null);
-                }}
-              >
-                Preview
-              </Button>
-              <Button
-                type="button"
-                variant={mode === "edit" ? "primary" : "secondary"}
-                className="!min-h-9"
-                onClick={() => {
-                  setMode("edit");
-                  setMessage(null);
-                }}
-              >
-                Edit
-              </Button>
+          <div className="flex items-start justify-between gap-4 lg:justify-start">
+            <div className="min-w-0">
+              <TextCaption className="mb-1 block uppercase tracking-wider text-[var(--ui-muted)]">
+                Organization
+              </TextCaption>
+              <div className="flex items-center gap-3">
+                <TextTitle2 as="h1" className="text-[var(--ui-text)]">
+                  {org.name}
+                </TextTitle2>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">{statusTag}</div>
             </div>
-          ) : null}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            {!isOwner && featuredCampaign ? (
+              <Button
+                as={Link}
+                href={`/campaigns/${featuredCampaign.id}`}
+                variant="primary"
+                className="w-full shrink-0 sm:w-auto"
+              >
+                Fund with USDC
+              </Button>
+            ) : null}
+            {isOwner ? (
+              <div className="flex items-center gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-1">
+                <Button
+                  type="button"
+                  variant={mode === "preview" ? "primary" : "secondary"}
+                  className="!min-h-9"
+                  onClick={() => {
+                    setMode("preview");
+                    resetForm();
+                    setMessage(null);
+                  }}
+                >
+                  Preview
+                </Button>
+                <Button
+                  type="button"
+                  variant={mode === "edit" ? "primary" : "secondary"}
+                  className="!min-h-9"
+                  onClick={() => {
+                    setMode("edit");
+                    setMessage(null);
+                  }}
+                >
+                  Edit
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -667,6 +757,17 @@ export function OrganizationProfileClient({
                 ) : null}
               </div>
               <div className="relative px-6 pb-6 pt-0">
+                {viewMode && origin && socialLinks ? (
+                  <button
+                    type="button"
+                    onClick={() => setShareOpen(true)}
+                    className="absolute right-6 top-4 flex h-9 w-9 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] text-[var(--ui-muted)] shadow-[var(--ui-shadow-sm)] transition-colors hover:border-[var(--ui-brand-green)]/30 hover:bg-[var(--ui-brand-green)]/10 hover:text-[var(--ui-brand-green)]"
+                    aria-label="Share organization"
+                    title="Share organization"
+                  >
+                    <Icon name="share" size="s" />
+                  </button>
+                ) : null}
                 <div className="-mt-12 flex flex-col gap-4 sm:flex-row sm:items-end">
                   <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl border-4 border-[var(--ui-surface-elev)] bg-[var(--ui-surface)] shadow-md sm:h-28 sm:w-28">
                     {displayLogo ? (
@@ -810,6 +911,104 @@ export function OrganizationProfileClient({
                         placeholder="Mission, impact focus, and how sponsorships help."
                       />
                     </div>
+                    <div id="edit-prior-projects" className="scroll-mt-28 border-t border-[var(--ui-border)] pt-6">
+                      <TextCaption className="mb-1 block text-[var(--ui-text)]">
+                        Past work (off-platform)
+                      </TextCaption>
+                      <TextBody className="mb-4 text-xs text-[var(--ui-muted)]">
+                        List completed projects from before Amini or outside this platform. Sponsors use this as
+                        context—keep it accurate. Optional link per row (https only).
+                      </TextBody>
+                      <div className="space-y-4">
+                        {priorProjects.map((row, i) => (
+                          <div
+                            key={i}
+                            className="space-y-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] p-3"
+                          >
+                            <input
+                              type="text"
+                              value={row.title}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setPriorProjects((prev) => {
+                                  const next = [...prev];
+                                  next[i] = { ...next[i], title: v };
+                                  return next;
+                                });
+                              }}
+                              placeholder="Project title"
+                              className={fieldInputClass}
+                              maxLength={200}
+                            />
+                            <input
+                              type="text"
+                              value={row.year ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setPriorProjects((prev) => {
+                                  const next = [...prev];
+                                  next[i] = { ...next[i], year: v };
+                                  return next;
+                                });
+                              }}
+                              placeholder="Year or range (e.g. 2023 or 2021–2024)"
+                              className={fieldInputClass}
+                              maxLength={32}
+                            />
+                            <textarea
+                              value={row.summary ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setPriorProjects((prev) => {
+                                  const next = [...prev];
+                                  next[i] = { ...next[i], summary: v };
+                                  return next;
+                                });
+                              }}
+                              placeholder="Short description (optional)"
+                              rows={2}
+                              className={`${fieldInputClass} min-h-[72px] resize-y`}
+                              maxLength={800}
+                            />
+                            <input
+                              type="url"
+                              value={row.link_url ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setPriorProjects((prev) => {
+                                  const next = [...prev];
+                                  next[i] = { ...next[i], link_url: v };
+                                  return next;
+                                });
+                              }}
+                              placeholder="https://… (optional)"
+                              className={fieldInputClass}
+                            />
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-red-600 hover:underline dark:text-red-400"
+                              onClick={() => setPriorProjects((prev) => prev.filter((_, j) => j !== i))}
+                            >
+                              Remove project
+                            </button>
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() =>
+                            setPriorProjects((prev) =>
+                              prev.length >= MAX_PRIOR_PROJECTS_UI
+                                ? prev
+                                : [...prev, { title: "" }],
+                            )
+                          }
+                          disabled={priorProjects.length >= MAX_PRIOR_PROJECTS_UI}
+                        >
+                          Add past project
+                        </Button>
+                      </div>
+                    </div>
                     <div className="flex flex-wrap gap-3">
                       <Button variant="primary" onClick={() => void saveOrg()} disabled={saving}>
                         {saving ? "Saving…" : "Save changes"}
@@ -928,44 +1127,79 @@ export function OrganizationProfileClient({
                     <li
                       key={p.id}
                       id={`post-${p.id}`}
-                      className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4"
+                      className="overflow-hidden rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)]"
                     >
-                      <div className="mb-2 flex items-start justify-between gap-2">
-                        <TextCaption className="text-[var(--ui-muted)]">
-                          {new Date(p.created_at).toLocaleString(undefined, {
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })}
-                        </TextCaption>
-                        {isOwner ? (
-                          <button
-                            type="button"
-                            className="text-xs text-red-500 hover:underline"
-                            onClick={() => void deletePost(p.id)}
-                          >
-                            Delete
-                          </button>
-                        ) : null}
+                      <div className="p-4 pb-3">
+                        <div className="mb-3 flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)]">
+                              {displayLogo ? (
+                                <Image src={displayLogo} alt="" fill className="object-cover" unoptimized />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-[var(--ui-muted)]">
+                                  <Icon name="peopleGroup" size="s" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-[var(--ui-text)]">{org.name}</p>
+                              <TextCaption className="truncate text-[var(--ui-muted)]">
+                                {new Date(p.created_at).toLocaleString(undefined, {
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                })}
+                              </TextCaption>
+                            </div>
+                          </div>
+                          {isOwner ? (
+                            <button
+                              type="button"
+                              className="shrink-0 text-xs font-medium text-red-500 hover:underline"
+                              onClick={() => void deletePost(p.id)}
+                            >
+                              Delete
+                            </button>
+                          ) : null}
+                        </div>
+                        <TextBody className="whitespace-pre-wrap text-[var(--ui-text)]">{p.body}</TextBody>
                       </div>
-                      {p.media?.length ? (
-                        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                          {p.media.slice(0, 4).map((m) => {
+
+                      {p.media && p.media.length > 0 ? (
+                        <div
+                          className={`grid gap-0.5 border-y border-[var(--ui-border)] bg-[var(--ui-border)] ${
+                            p.media.length === 1
+                              ? "grid-cols-1"
+                              : p.media.length === 2
+                                ? "grid-cols-2"
+                                : p.media.length === 3
+                                  ? "grid-cols-2"
+                                  : "grid-cols-2"
+                          }`}
+                        >
+                          {p.media.slice(0, 4).map((m, i, arr) => {
                             const src = (m.url ?? m.cid ?? "").trim();
                             if (!src) return null;
+                            const isThreeAndFirst = arr.length === 3 && i === 0;
                             return (
                               <div
                                 key={m.id}
-                                className="relative aspect-square overflow-hidden rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)]"
+                                className={`relative bg-[var(--ui-surface-elev)] ${
+                                  isThreeAndFirst ? "col-span-2 aspect-[2/1]" : arr.length === 1 ? "" : "aspect-square"
+                                } ${arr.length === 1 ? "max-h-[400px] w-full" : ""}`}
                               >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={src} alt="" className="h-full w-full object-cover" />
+                                <img
+                                  src={src}
+                                  alt=""
+                                  className={`w-full ${arr.length === 1 ? "max-h-[400px] object-contain bg-black/5 dark:bg-white/5" : "h-full object-cover"}`}
+                                />
                               </div>
                             );
                           })}
                         </div>
                       ) : null}
-                      <TextBody className="whitespace-pre-wrap text-[var(--ui-text)]">{p.body}</TextBody>
-                      <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--ui-border)] pt-3">
+
+                      <div className="flex items-center justify-between gap-3 px-4 py-2 sm:px-5 sm:py-3">
                         <button
                           type="button"
                           onClick={() => void toggleLike(p)}
@@ -1008,153 +1242,367 @@ export function OrganizationProfileClient({
           </div>
 
           <aside className="space-y-6">
-            {viewMode && origin && socialLinks ? (
-              <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-[var(--ui-shadow-md)]">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <TextTitle3 as="h2" className="text-[var(--ui-text)]">
-                      Share
-                    </TextTitle3>
-                    <TextCaption className="mt-1 block text-[var(--ui-muted)]">
-                      Copy link, QR, or share to WhatsApp/X.
-                    </TextCaption>
+            {viewMode && origin && postSocialLinks && postShareId ? (
+              <Modal
+                visible={postShareOpen}
+                onRequestClose={() => setPostShareOpen(false)}
+                className="rounded-2xl overflow-hidden"
+              >
+                <ModalHeader title="Share this post" closeAccessibilityLabel="Close" />
+                <ModalBody className="px-5 py-4 sm:px-6">
+                  <div className="space-y-4">
+                    <div className="space-y-3">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-[var(--ui-muted)]" htmlFor="post-share-url">
+                          Link
+                        </label>
+                        <input
+                          id="post-share-url"
+                          readOnly
+                          value={postShareUrl}
+                          className={`${fieldInputClass} font-mono text-xs sm:text-sm`}
+                        />
+                        {postCopyHint ? (
+                          <p className="mt-2 text-xs text-[var(--ui-brand-green)]" role="status">
+                            {postCopyHint}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="primary"
+                          compact
+                          className="min-h-9"
+                          onClick={() => {
+                            void copyPostShareLink();
+                            void recordPostShare(postShareId);
+                          }}
+                        >
+                          Copy link
+                        </Button>
+                        {canNativeShare ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            compact
+                            className="min-h-9"
+                            onClick={() => {
+                              void nativeSharePost();
+                              void recordPostShare(postShareId);
+                            }}
+                          >
+                            Share…
+                          </Button>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <TextCaption className="mb-2 block text-[var(--ui-muted)]">Share via</TextCaption>
+                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                          {sharePlatformButtons.map(({ id, label, Icon, iconClass }) => {
+                            const href = postSocialLinks[id];
+                            const isMail = href.startsWith("mailto:");
+                            return (
+                              <a
+                                key={id}
+                                href={href}
+                                aria-label={label}
+                                title={label}
+                                onClick={() => void recordPostShare(postShareId)}
+                                {...(isMail ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+                                className={[
+                                  "flex h-12 items-center justify-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] transition-colors hover:border-[var(--ui-brand-green)]/40 hover:bg-[var(--ui-brand-green)]/8",
+                                  sharePlatformButtons.find((b) => b.id === id)?.buttonClass ?? "",
+                                ].join(" ")}
+                              >
+                                <Icon className={`h-6 w-6 shrink-0 ${iconClass}`} aria-hidden />
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="shrink-0 !min-h-9 !min-w-9 px-0"
-                    onClick={() => setShareOpen(true)}
-                  >
-                    <span className="sr-only">Share</span>
-                    <Icon name="share" size="m" className="text-[var(--ui-text)]" />
-                  </Button>
-                </div>
+                </ModalBody>
+                <ModalFooter
+                  primaryAction={
+                    <Button type="button" onClick={() => setPostShareOpen(false)}>
+                      Done
+                    </Button>
+                  }
+                />
+              </Modal>
+            ) : null}
 
-                <Modal
-                  visible={shareOpen}
-                  onRequestClose={() => setShareOpen(false)}
-                  className="rounded-2xl overflow-hidden"
-                >
-                  <ModalHeader title="Share organization" closeAccessibilityLabel="Close" />
-                  <ModalBody className="px-5 py-4 sm:px-6">
-                    <div className="space-y-4">
-                      <TextBody className="text-sm text-[var(--ui-muted)]">
-                        Previews on WhatsApp, X, and others use your cover/logo and tagline from the metadata we set for this URL.
-                      </TextBody>
+            {viewMode && origin && socialLinks ? (
+              <Modal
+                visible={shareOpen}
+                onRequestClose={() => setShareOpen(false)}
+                className="rounded-2xl overflow-hidden"
+              >
+                <ModalHeader title="Share organization" closeAccessibilityLabel="Close" />
+                <ModalBody className="px-5 py-4 sm:px-6">
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+                      <div className="flex shrink-0 justify-center rounded-xl border border-[var(--ui-border)] bg-white p-3 dark:bg-[var(--ui-surface)] sm:justify-start">
+                        <QRCodeSVG value={shareUrl} size={140} level="M" includeMargin={false} />
+                      </div>
 
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
-                        <div className="flex shrink-0 justify-center rounded-xl border border-[var(--ui-border)] bg-white p-3 dark:bg-[var(--ui-surface)] sm:justify-start">
-                          <QRCodeSVG value={shareUrl} size={140} level="M" includeMargin={false} />
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-[var(--ui-muted)]" htmlFor="org-share-url">
+                            Link
+                          </label>
+                          <input
+                            id="org-share-url"
+                            readOnly
+                            value={shareUrl}
+                            className={`${fieldInputClass} font-mono text-xs sm:text-sm`}
+                          />
+                          {copyHint ? (
+                            <p className="mt-2 text-xs text-[var(--ui-brand-green)]" role="status">
+                              {copyHint}
+                            </p>
+                          ) : null}
                         </div>
 
-                        <div className="min-w-0 flex-1 space-y-3">
-                          <div>
-                            <label className="mb-1 block text-xs font-medium text-[var(--ui-muted)]" htmlFor="org-share-url">
-                              Link
-                            </label>
-                            <input
-                              id="org-share-url"
-                              readOnly
-                              value={shareUrl}
-                              className={`${fieldInputClass} font-mono text-xs sm:text-sm`}
-                            />
-                            {copyHint ? (
-                              <p className="mt-2 text-xs text-[var(--ui-brand-green)]" role="status">
-                                {copyHint}
-                              </p>
-                            ) : null}
-                          </div>
-
-                          <div className="flex flex-wrap gap-2">
-                            <Button type="button" variant="secondary" className="min-h-9" onClick={() => void copyShareLink()}>
-                              Copy link
+                        <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="primary" compact className="min-h-9" onClick={() => void copyShareLink()}>
+                            Copy link
+                          </Button>
+                          {canNativeShare ? (
+                          <Button type="button" variant="secondary" compact className="min-h-9" onClick={() => void nativeShare()}>
+                              Share…
                             </Button>
-                            {canNativeShare ? (
-                              <Button type="button" variant="secondary" className="min-h-9" onClick={() => void nativeShare()}>
-                                Share…
-                              </Button>
-                            ) : null}
-                          </div>
+                          ) : null}
+                        </div>
 
-                          <div>
-                            <TextCaption className="mb-2 block text-[var(--ui-muted)]">Share via</TextCaption>
-                            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                              {sharePlatformButtons.map(({ id, label, Icon, iconClass }) => {
-                                const href = socialLinks[id];
-                                const isMail = href.startsWith("mailto:");
-                                return (
-                                  <a
-                                    key={id}
-                                    href={href}
-                                    aria-label={label}
-                                    title={label}
-                                    {...(isMail ? {} : { target: "_blank", rel: "noopener noreferrer" })}
-                                    className={[
-                                      "flex h-12 items-center justify-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] transition-colors hover:border-[var(--ui-brand-green)]/40 hover:bg-[var(--ui-brand-green)]/8",
-                                      sharePlatformButtons.find((b) => b.id === id)?.buttonClass ?? "",
-                                    ].join(" ")}
-                                  >
-                                    <Icon className={`h-6 w-6 shrink-0 ${iconClass}`} aria-hidden />
-                                  </a>
-                                );
-                              })}
-                            </div>
+                        <div>
+                          <TextCaption className="mb-2 block text-[var(--ui-muted)]">Share via</TextCaption>
+                          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                            {sharePlatformButtons.map(({ id, label, Icon, iconClass }) => {
+                              const href = socialLinks[id];
+                              const isMail = href.startsWith("mailto:");
+                              return (
+                                <a
+                                  key={id}
+                                  href={href}
+                                  aria-label={label}
+                                  title={label}
+                                  {...(isMail ? {} : { target: "_blank", rel: "noopener noreferrer" })}
+                                  className={[
+                                    "flex h-12 items-center justify-center rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] transition-colors hover:border-[var(--ui-brand-green)]/40 hover:bg-[var(--ui-brand-green)]/8",
+                                    sharePlatformButtons.find((b) => b.id === id)?.buttonClass ?? "",
+                                  ].join(" ")}
+                                >
+                                  <Icon className={`h-6 w-6 shrink-0 ${iconClass}`} aria-hidden />
+                                </a>
+                              );
+                            })}
                           </div>
                         </div>
                       </div>
                     </div>
-                  </ModalBody>
-                  <ModalFooter
-                    primaryAction={
-                      <Button type="button" onClick={() => setShareOpen(false)}>
-                        Done
-                      </Button>
-                    }
-                  />
-                </Modal>
+                  </div>
+                </ModalBody>
+                <ModalFooter
+                  primaryAction={
+                    <Button type="button" onClick={() => setShareOpen(false)}>
+                      Done
+                    </Button>
+                  }
+                />
+              </Modal>
+            ) : null}
+
+            {viewMode && (savedPriorProjects.length > 0 || isOwner) ? (
+              <div
+                id="org-prior-projects"
+                className="scroll-mt-28 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-[var(--ui-shadow-md)]"
+              >
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <TextTitle3 as="h2" className="text-[var(--ui-text)]">
+                    Past work &amp; experience
+                  </TextTitle3>
+                  {isOwner && savedPriorProjects.length === 0 ? (
+                    <Button
+                      variant="secondary"
+                      compact
+                      onClick={() => {
+                        setMode("edit");
+                        window.setTimeout(() => {
+                          document.getElementById("edit-prior-projects")?.scrollIntoView({ behavior: "smooth" });
+                        }, 100);
+                      }}
+                    >
+                      Add work
+                    </Button>
+                  ) : null}
+                </div>
+                <TextBody className="mb-5 text-sm text-[var(--ui-muted)]">
+                  Highlights supplied by this organization—including projects completed before or outside Amini.
+                  Always verify claims independently when it matters.
+                </TextBody>
+                
+                {savedPriorProjects.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface)] p-5 text-center">
+                    <TextBody className="text-sm text-[var(--ui-muted)]">
+                      No past projects listed yet. Add a short track record to help sponsors trust your work.
+                    </TextBody>
+                  </div>
+                ) : (
+                  <ul className="space-y-4">
+                    {savedPriorProjects.map((p, idx) => (
+                      <li
+                        key={`${p.title}-${idx}`}
+                        className="group relative rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 transition-colors hover:border-[var(--ui-brand-green)]/30"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-[var(--ui-text)]">{p.title}</p>
+                            {p.year?.trim() ? (
+                              <p className="mt-0.5 text-xs font-medium text-[var(--ui-muted)]">{p.year.trim()}</p>
+                            ) : null}
+                          </div>
+                          {p.link_url?.trim() ? (
+                            <a
+                              href={p.link_url.trim()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="shrink-0 rounded-full bg-[var(--ui-surface-elev)] p-2 text-[var(--ui-muted)] transition-colors hover:bg-[var(--ui-brand-green)]/10 hover:text-[var(--ui-brand-green)]"
+                              aria-label={`Visit link for ${p.title}`}
+                              title="Visit project link"
+                            >
+                              <Icon name="externalLink" size="s" />
+                            </a>
+                          ) : null}
+                        </div>
+                        {p.summary?.trim() ? (
+                          <TextBody className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-[var(--ui-muted)]">
+                            {p.summary.trim()}
+                          </TextBody>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ) : null}
 
-            <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-[var(--ui-shadow-md)]">
-              <TextTitle3 as="h2" className="mb-3 text-[var(--ui-text)]">
-                Campaigns
+            <div
+              id="org-campaigns"
+              className="scroll-mt-28 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-[var(--ui-shadow-md)]"
+            >
+              <TextTitle3 as="h2" className="text-[var(--ui-text)]">
+                Fund &amp; campaigns
               </TextTitle3>
+              <TextBody className="mt-2 text-sm text-[var(--ui-muted)]">
+                Donations go to{" "}
+                <strong className="font-medium text-[var(--ui-text)]">milestone escrow on Base</strong> (USDC). Funds
+                move when milestones are completed and attested (EAS)—the same flow as every Amini campaign.
+              </TextBody>
+
+              {featuredCampaign && !isOwner ? (
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <Button
+                    as={Link}
+                    href={`/campaigns/${featuredCampaign.id}`}
+                    variant="primary"
+                    className="w-full sm:flex-1"
+                  >
+                    {campaigns.length > 1 ? "Fund latest campaign" : "Open campaign to fund"}
+                  </Button>
+                  {campaigns.length > 1 ? (
+                    <Button as={Link} href="#org-campaign-list" variant="secondary" className="w-full sm:w-auto">
+                      All campaigns
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+
               {campaigns.length === 0 ? (
-                <TextBody className="text-sm text-[var(--ui-muted)]">No linked campaigns yet.</TextBody>
+                <div className="mt-4 rounded-xl border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface)] p-4">
+                  {isOwner ? (
+                    <>
+                      <TextBody className="text-sm text-[var(--ui-muted)]">
+                        No campaign is linked to this organization yet. Create one from your wallet so donors land here
+                        and fund through transparent milestones.
+                      </TextBody>
+                      <Button as={Link} href="/campaigns/create" variant="primary" className="mt-3 w-full">
+                        Create campaign
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <TextBody className="text-sm text-[var(--ui-muted)]">
+                        This organization does not have a public campaign linked yet. Browse other campaigns on Amini to
+                        fund with USDC.
+                      </TextBody>
+                      <Button as={Link} href="/campaigns" variant="secondary" className="mt-3 w-full">
+                        Explore campaigns
+                      </Button>
+                    </>
+                  )}
+                </div>
               ) : (
-                <ul className="space-y-3">
-                  {campaigns.map((c) => (
-                    <li key={c.id}>
-                      <Link
-                        href={`/campaigns/${c.id}`}
-                        className="block rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3 transition-colors hover:border-[var(--ui-brand-green)]/40"
-                      >
-                        <p className="font-medium text-[var(--ui-text)]">{campaignTitle(c)}</p>
-                        {goalLabel(c.target_amount) ? (
-                          <p className="mt-1 text-xs text-[var(--ui-muted)]">Goal {goalLabel(c.target_amount)}</p>
-                        ) : null}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <TextCaption className="mb-2 mt-5 block uppercase tracking-wider text-[var(--ui-muted)]">
+                    Linked campaigns
+                  </TextCaption>
+                  <ul id="org-campaign-list" className="scroll-mt-28 space-y-3">
+                    {campaigns.map((c) => (
+                      <li key={c.id}>
+                        <Link
+                          href={`/campaigns/${c.id}`}
+                          className="block rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3 transition-colors hover:border-[var(--ui-brand-green)]/40"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-medium text-[var(--ui-text)]">{campaignTitle(c)}</p>
+                            <span className="shrink-0 text-xs font-semibold text-[var(--ui-brand-green)]">Fund →</span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-baseline gap-x-3 text-xs text-[var(--ui-muted)]">
+                            {goalLabel(c.target_amount) ? (
+                              <span>Goal {goalLabel(c.target_amount)}</span>
+                            ) : null}
+                            {c.total_raised && BigInt(c.total_raised) > 0n ? (
+                              <span className="font-semibold text-[var(--ui-brand-green)]">
+                                Raised {formatUsdc(BigInt(c.total_raised))} USDC
+                              </span>
+                            ) : null}
+                            {(c.donor_count ?? 0) > 0 ? (
+                              <span>{c.donor_count} donor{c.donor_count !== 1 ? "s" : ""}</span>
+                            ) : null}
+                          </div>
+                          {c.region?.trim() || c.cause?.trim() ? (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {c.region?.trim() ? (
+                                <span className={`${chipClass} !py-0.5 text-[10px]`}>{c.region}</span>
+                              ) : null}
+                              {c.cause?.trim() ? (
+                                <span className={`${chipClass} !py-0.5 text-[10px]`}>{c.cause}</span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
-              {isOwner ? (
+
+              {isOwner && campaigns.length > 0 ? (
                 <Button as={Link} href="/campaigns/create" variant="secondary" className="mt-4 w-full">
-                  Create campaign
+                  Create another campaign
                 </Button>
               ) : null}
-            </div>
 
-            <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-[var(--ui-shadow-md)]">
-              <TextTitle3 as="h2" className="mb-2 text-[var(--ui-text)]">
-                Support
-              </TextTitle3>
-              <TextBody className="text-sm text-[var(--ui-muted)]">
-                Transparent milestones and on-chain disbursements through Amini campaigns.
-              </TextBody>
-              <Button as={Link} href="/campaigns" variant="primary" className="mt-4 w-full">
-                Explore campaigns
-              </Button>
+              {!isOwner && campaigns.length > 0 ? (
+                <Button as={Link} href="/campaigns" variant="secondary" className="mt-4 w-full">
+                  Explore all campaigns
+                </Button>
+              ) : null}
             </div>
           </aside>
         </div>
@@ -1177,25 +1625,77 @@ export function OrganizationProfileClient({
           ) : comments.length === 0 ? (
             <TextBody className="text-sm text-[var(--ui-muted)]">No comments yet.</TextBody>
           ) : (
-            <ul className="space-y-3">
-              {comments.map((c) => (
-                <li key={c.id} className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3">
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <TextCaption className="font-mono text-[10px] text-[var(--ui-muted)]">
-                      {c.author_wallet.slice(0, 6)}…{c.author_wallet.slice(-4)}
-                    </TextCaption>
-                    <TextCaption className="text-[10px] text-[var(--ui-muted)]">
-                      {new Date(c.created_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
-                    </TextCaption>
-                  </div>
-                  <TextBody className="whitespace-pre-wrap text-sm text-[var(--ui-text)]">{c.body}</TextBody>
-                </li>
-              ))}
-            </ul>
+            <div className="space-y-3">
+              {(() => {
+                const roots = comments.filter((c) => !c.parent_id);
+                const repliesByParent = new Map<string, OrganizationPostCommentRow[]>();
+                for (const c of comments) {
+                  if (!c.parent_id) continue;
+                  const list = repliesByParent.get(c.parent_id) ?? [];
+                  list.push(c);
+                  repliesByParent.set(c.parent_id, list);
+                }
+                for (const list of repliesByParent.values()) {
+                  list.sort((a, b) => a.created_at.localeCompare(b.created_at));
+                }
+                const renderComment = (c: OrganizationPostCommentRow, depth: 0 | 1) => {
+                  const replies = repliesByParent.get(c.id) ?? [];
+                  return (
+                    <div key={c.id} className={depth === 1 ? "ml-5 border-l border-[var(--ui-border)] pl-4" : ""}>
+                      <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3">
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <TextCaption className="font-mono text-[10px] text-[var(--ui-muted)]">
+                            {c.author_wallet.slice(0, 6)}…{c.author_wallet.slice(-4)}
+                          </TextCaption>
+                          <TextCaption className="text-[10px] text-[var(--ui-muted)]">
+                            {new Date(c.created_at).toLocaleString(undefined, {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
+                          </TextCaption>
+                        </div>
+                        <TextBody className="whitespace-pre-wrap text-sm text-[var(--ui-text)]">{c.body}</TextBody>
+                        <div className="mt-2 flex items-center justify-between">
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-[var(--ui-muted)] hover:text-[var(--ui-text)]"
+                            onClick={() => {
+                              setReplyTo(c);
+                            }}
+                          >
+                            Reply
+                          </button>
+                        </div>
+                      </div>
+                      {depth === 0 && replies.length > 0 ? (
+                        <div className="mt-2 space-y-2">
+                          {replies.map((r) => renderComment(r, 1))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                };
+                return <div className="space-y-3">{roots.map((c) => renderComment(c, 0))}</div>;
+              })()}
+            </div>
           )}
 
           <div className="mt-4 border-t border-[var(--ui-border)] pt-4">
             <TextCaption className="mb-2 block text-[var(--ui-muted)]">Add a comment</TextCaption>
+            {replyTo ? (
+              <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2">
+                <TextCaption className="text-[var(--ui-muted)]">
+                  Replying to <span className="font-mono">{replyTo.author_wallet.slice(0, 6)}…{replyTo.author_wallet.slice(-4)}</span>
+                </TextCaption>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-[var(--ui-muted)] hover:text-[var(--ui-text)]"
+                  onClick={() => setReplyTo(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : null}
             <textarea
               value={commentDraft}
               onChange={(e) => setCommentDraft(e.target.value)}

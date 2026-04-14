@@ -7,7 +7,7 @@ import {
   type WalletClient,
 } from "viem";
 import { EAS_PORTAL_BASE } from "@amini/shared";
-import { encodeMilestoneAttestationData } from "./encode.js";
+import { encodeMilestoneAttestationData } from "./encode";
 
 const EAS_ABI = parseAbi([
   "event Attested(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schemaUID)",

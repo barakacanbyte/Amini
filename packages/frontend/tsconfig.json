@@ -31,6 +31,9 @@
       ],
       "@amini/shared": [
         "../shared/src/index.ts"
+      ],
+      "@amini/eas-schemas": [
+        "../eas-schemas/src/index.ts"
       ]
     }
   },

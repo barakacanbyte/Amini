@@ -13,7 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUN_VERSION: "1.1"
+  # bun.lock in this repo is lockfileVersion 1 (Bun 1.2+).
+  BUN_VERSION: "latest"
 
 jobs:
   audit:
@@ -57,6 +58,9 @@ jobs:
         working-directory: packages/contracts
         run: forge build
 
+      - name: Prepare SARIF output directory
+        run: mkdir -p results
+
       - uses: crytic/slither-action@v0.4.1
         continue-on-error: true
         with:
@@ -66,7 +70,14 @@ jobs:
           sarif: results/slither.sarif
 
       - name: Upload SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('results/slither.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: results/slither.sarif
+
+      - name: Note when SARIF missing
+        if: always()
+        run: |
+          if [ ! -f results/slither.sarif ]; then
+            echo "Slither did not produce results/slither.sarif (analysis may have failed earlier)." >> "$GITHUB_STEP_SUMMARY"
+          fi

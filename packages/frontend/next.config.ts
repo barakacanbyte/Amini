@@ -14,7 +14,9 @@ const nextConfig: NextConfig = {
   },
   /** Reduces dev-only UI that may POST diagnostics (can conflict with strict fetch header rules). */
   devIndicators: false,
-  transpilePackages: ["@amini/shared"],
+  // Workspaces: these packages are developed in-repo and may not ship prebuilt JS in CI.
+  // Ensuring Next transpiles them avoids Turbopack module-resolution failures.
+  transpilePackages: ["@amini/shared", "@amini/eas-schemas"],
   images: {
     remotePatterns: [
       {

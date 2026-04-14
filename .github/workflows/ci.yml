@@ -11,7 +11,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUN_VERSION: "1.1"
+  # bun.lock in this repo is lockfileVersion 1 (Bun 1.2+).
+  # Using "latest" avoids lockfile format mismatches on CI.
+  BUN_VERSION: "latest"
 
 jobs:
   lint:

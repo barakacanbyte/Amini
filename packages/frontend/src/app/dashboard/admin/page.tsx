@@ -614,7 +614,7 @@ export default function AdminDashboard() {
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-1.5 text-xs font-medium text-[var(--ui-brand-green)] hover:bg-[var(--ui-surface)]"
                           >
-                            <Icon name="link" size="xs" />
+                            <Icon name="globe" size="xs" />
                             Evidence {i + 1}
                           </a>
                         ))}

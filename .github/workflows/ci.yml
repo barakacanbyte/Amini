@@ -32,7 +32,8 @@ jobs:
         run: bun lint
 
       - name: Prettier check
-        run: bun exec prettier --check "**/*.{ts,tsx,js,json,md}"
+        # Use bunx to guarantee Prettier exists in CI even if workspace installs change.
+        run: bunx --bun prettier@3.2.5 --check "**/*.{ts,tsx,js,json,md}"
 
   build:
     name: Build

@@ -305,7 +305,7 @@ export default function AdminDashboard() {
     <div className="space-y-8">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-4xl font-bold tracking-tight text-[var(--ui-text)]">
+        <h1 className="text-3xl font-bold tracking-tight text-[var(--ui-text)] sm:text-4xl">
           Admin <span className="text-blue-500">Control Center</span>
         </h1>
         <p className="max-w-2xl text-[var(--ui-muted)]">
@@ -365,8 +365,8 @@ export default function AdminDashboard() {
         ) : (
           <div className="space-y-4">
             {pendingOrgs.map((org) => (
-              <div key={org.id} className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-6">
-                <div className="flex items-start gap-6">
+              <div key={org.id} className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-4 sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
                   {/* Logo */}
                   {org.logo_url ? (
                     <img 
@@ -443,7 +443,7 @@ export default function AdminDashboard() {
                   </div>
                   
                   {/* Actions */}
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-row flex-wrap gap-2 sm:flex-col">
                     <Button 
                       variant="primary" 
                       compact
@@ -571,8 +571,8 @@ export default function AdminDashboard() {
         ) : (
           <div className="space-y-4">
             {pendingProofs.map((proof) => (
-              <div key={proof.id} className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-6">
-                <div className="flex items-start gap-6">
+              <div key={proof.id} className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-4 sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
                   {proof.org_logo_url ? (
                     <img
                       src={proof.org_logo_url}
@@ -639,7 +639,7 @@ export default function AdminDashboard() {
                     </p>
                   </div>
 
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-row flex-wrap gap-2 sm:flex-col">
                     <Button
                       variant="primary"
                       compact

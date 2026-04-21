@@ -87,7 +87,7 @@ export default function DonorDashboard() {
     <div className="space-y-8">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-4xl font-bold tracking-tight text-[var(--ui-text)]">
+        <h1 className="text-3xl font-bold tracking-tight text-[var(--ui-text)] sm:text-4xl">
           Campaign <span className="brand-green">Explorer</span>
         </h1>
         <p className="max-w-3xl text-[var(--ui-muted)]">
@@ -109,7 +109,7 @@ export default function DonorDashboard() {
           </div>
         </div>
         
-        <div className="w-48 space-y-1.5">
+        <div className="w-full space-y-1.5 sm:w-48">
           <label className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Region</label>
           <div className="relative">
             <select className="w-full appearance-none rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] py-2.5 pl-4 pr-10 text-sm text-[var(--ui-text)] outline-none focus:border-[var(--ui-brand-green)] focus:ring-1 focus:ring-[var(--ui-brand-green)]">
@@ -122,7 +122,7 @@ export default function DonorDashboard() {
           </div>
         </div>
 
-        <div className="w-48 space-y-1.5">
+        <div className="w-full space-y-1.5 sm:w-48">
           <label className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Cause</label>
           <div className="relative">
             <select className="w-full appearance-none rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] py-2.5 pl-4 pr-10 text-sm text-[var(--ui-text)] outline-none focus:border-[var(--ui-brand-green)] focus:ring-1 focus:ring-[var(--ui-brand-green)]">

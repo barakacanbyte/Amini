@@ -110,7 +110,7 @@ export default function OrganizationDashboard() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-2">
-          <h1 className="text-4xl font-bold tracking-tight text-[var(--ui-text)]">
+          <h1 className="text-3xl font-bold tracking-tight text-[var(--ui-text)] sm:text-4xl">
             Organization <span className="brand-brown">Dashboard</span>
           </h1>
           <p className="max-w-xl text-[var(--ui-muted)]">
@@ -259,8 +259,8 @@ export default function OrganizationDashboard() {
             </Button>
           </div>
         ) : (
-          <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] overflow-hidden">
-            <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)]">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="border-b border-[var(--ui-border)] bg-[var(--ui-surface-elev)]">
                 <tr>
                   <th className="px-4 py-3 font-semibold text-[var(--ui-muted)]">Campaign Name</th>

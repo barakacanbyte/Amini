@@ -1064,8 +1064,8 @@ export default function CampaignPage() {
   const waitingOnMeta = !flowLoaded;
   if (waitingOnChain || waitingOnMeta) {
     return (
-      <main className="app-page px-4 py-8 md:px-8">
-        <div className="app-surface mx-auto max-w-2xl rounded-2xl p-6 md:p-8">
+      <main className="app-page px-3 py-6 sm:px-4 sm:py-8 md:px-8">
+        <div className="app-surface mx-auto max-w-2xl rounded-2xl p-5 sm:p-6 md:p-8">
           <div className="flex items-center gap-3">
             <Spinner size={3} accessibilityLabel="Loading campaign" />
             <TextBody as="p" className="app-muted">Loading campaign...</TextBody>
@@ -1081,8 +1081,8 @@ export default function CampaignPage() {
   const onChainOk = contractsConfigured && Boolean(c && c[5]);
   if (!dbCampaign && !onChainOk) {
     return (
-      <main className="app-page px-4 py-8 md:px-8">
-        <div className="app-surface mx-auto max-w-2xl rounded-2xl p-6 md:p-8">
+      <main className="app-page px-3 py-6 sm:px-4 sm:py-8 md:px-8">
+        <div className="app-surface mx-auto max-w-2xl rounded-2xl p-5 sm:p-6 md:p-8">
           {!contractsConfigured ? (
             <>
               <Tag colorScheme="yellow" emphasis="high">Chain contracts not configured</Tag>
@@ -1153,7 +1153,7 @@ export default function CampaignPage() {
   const impactMetricRows = parseImpactMetrics(dbCampaign?.impact_metrics);
 
   return (
-    <main className="app-page px-4 pb-16 pt-6 md:px-8 lg:px-10">
+    <main className="app-page px-3 pb-12 pt-4 sm:px-4 sm:pb-16 sm:pt-6 md:px-8 lg:px-10">
       <div className="mx-auto max-w-6xl">
         <header className="mb-6 flex flex-wrap items-center gap-2 text-sm">
           <Button as={Link} href="/campaigns" variant="secondary" compact transparent>
@@ -1888,14 +1888,14 @@ export default function CampaignPage() {
                   value={impactMilestone}
                   onChange={(e) => setImpactMilestone(e.target.value)}
                   placeholder="Milestone index (optional)"
-                  className="w-64 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
+                  className="w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none sm:w-64"
                 />
                 <input
                   type="text"
                   value={impactTxHash}
                   onChange={(e) => setImpactTxHash(e.target.value)}
                   placeholder="Linked tx hash (optional 0x...)"
-                  className="min-w-[280px] flex-1 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none"
+                  className="w-full flex-1 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none sm:min-w-[280px]"
                 />
                 <input
                   type="file"

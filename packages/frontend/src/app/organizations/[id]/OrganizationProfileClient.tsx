@@ -677,8 +677,8 @@ export function OrganizationProfileClient({
     );
 
   return (
-    <main className="app-page pt-24 pb-16">
-      <div className="mx-auto w-full max-w-5xl px-4">
+    <main className="app-page pt-16 pb-12 sm:pt-24 sm:pb-16">
+      <div className="mx-auto w-full max-w-5xl px-3 sm:px-4">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex items-start justify-between gap-4 lg:justify-start">
             <div className="min-w-0">

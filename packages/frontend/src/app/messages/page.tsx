@@ -37,8 +37,8 @@ export default function MessagesPage() {
   }, [walletClient, env]);
 
   return (
-    <main className="app-page pt-24 pb-16">
-      <div className="mx-auto w-full max-w-lg px-4">
+    <main className="app-page pt-16 pb-12 sm:pt-24 sm:pb-16">
+      <div className="mx-auto w-full max-w-lg px-3 sm:px-4">
         <TextCaption className="mb-2 block uppercase tracking-wider text-[var(--ui-muted)]">
           Inbox
         </TextCaption>

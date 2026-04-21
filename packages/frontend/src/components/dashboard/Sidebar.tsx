@@ -72,7 +72,7 @@ export function Sidebar({ role, onRoleChange }: SidebarProps) {
   const currentNav = navItems[role];
 
   return (
-    <aside className="flex min-h-screen w-64 shrink-0 flex-col border-r border-[var(--ui-border)] bg-[var(--ui-surface)]">
+    <aside className="flex min-h-screen w-full shrink-0 flex-col border-r border-[var(--ui-border)] bg-[var(--ui-surface)] lg:w-64">
       <div className="flex h-16 shrink-0 items-center px-6">
         <Link href="/" className="flex items-center gap-2 focus-brand">
           <Image src="/logo.png" alt="Amini" width={100} height={28} className="h-7 w-auto" />

@@ -152,7 +152,7 @@ export default function AdminOrganizationsPage() {
   }
 
   return (
-    <div className="app-surface mx-auto max-w-7xl rounded-2xl p-6 md:p-8">
+    <div className="app-surface mx-auto max-w-7xl rounded-2xl p-4 sm:p-6 md:p-8">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <TextTitle2 as="h1" className="app-text">
@@ -186,7 +186,7 @@ export default function AdminOrganizationsPage() {
             />
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {(["all", "pending", "approved", "rejected"] as FilterStatus[]).map((status) => (
             <Button
               key={status}
@@ -258,9 +258,9 @@ export default function AdminOrganizationsPage() {
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
+                  <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
                         <TextTitle4 as="h3" className="app-text">
                           {org.name}
                         </TextTitle4>

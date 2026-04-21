@@ -112,7 +112,7 @@ export function ExplorerClient() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search campaign id, wallet, or tx hash"
-          className="input-field min-w-[280px] flex-1"
+          className="input-field w-full flex-1 sm:min-w-[280px]"
           onKeyDown={(e) => e.key === "Enter" && runSearch()}
         />
         <Button variant="primary" compact onClick={runSearch}>

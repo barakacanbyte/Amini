@@ -8,8 +8,8 @@ import { ExplorerClient } from "./ExplorerClient";
 
 export default function ExplorerPage() {
   return (
-    <main className="app-page px-4 py-8 md:px-8">
-      <div className="app-surface mx-auto max-w-6xl rounded-2xl p-6 md:p-8">
+    <main className="app-page px-3 py-6 sm:px-4 sm:py-8 md:px-8">
+      <div className="app-surface mx-auto max-w-6xl rounded-2xl p-4 sm:p-6 md:p-8">
         <div className="mb-4 flex items-center justify-between gap-3">
           <TextTitle2 as="h1" className="brand-brown">
             Transparency Explorer

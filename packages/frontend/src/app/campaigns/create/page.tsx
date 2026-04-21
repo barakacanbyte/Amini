@@ -17,6 +17,8 @@ import { Tag } from "@coinbase/cds-web/tag/Tag";
 import { Banner } from "@coinbase/cds-web/banner/Banner";
 import { Spinner } from "@coinbase/cds-web/loaders/Spinner";
 import { Icon } from "@coinbase/cds-web/icons";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/cn";
 import {
   config,
   campaignRegistryAbi,
@@ -66,6 +68,85 @@ const STEPS = [
   { key: 4, label: "Verification" },
   { key: 5, label: "Review" },
 ] as const;
+
+const WIZARD_CARD_CLASS =
+  "rounded-[22px] border border-[var(--ui-border)] bg-[var(--ui-surface)] p-6 shadow-[0_12px_40px_-18px_rgba(0,0,0,0.12)] sm:rounded-[28px] sm:p-8 dark:border-[var(--ui-border)] dark:bg-[var(--ui-surface)] dark:shadow-[0_12px_40px_-18px_rgba(0,0,0,0.35)]";
+
+function CampaignCreateStepper({
+  currentStep,
+  goToStep,
+  isStepReachable,
+}: {
+  currentStep: number;
+  goToStep: (step: number) => void;
+  isStepReachable: (step: number) => boolean;
+}) {
+  const total = STEPS.length;
+  /** Fill to horizontal center of current step; full width on last step. */
+  const fillPct =
+    currentStep >= total ? 100 : Math.max(0, Math.min(100, ((currentStep - 0.5) / total) * 100));
+
+  return (
+    <div className="mb-2">
+      <div className="flex w-full justify-between gap-0.5 sm:gap-1">
+        {STEPS.map((s) => {
+          const reachable = isStepReachable(s.key);
+          const active = currentStep === s.key;
+          const completed = currentStep > s.key;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              disabled={!reachable}
+              onClick={() => reachable && goToStep(s.key)}
+              className={cn(
+                "flex min-w-0 flex-1 flex-col items-center gap-2 rounded-lg px-0.5 py-1.5 transition-colors sm:gap-2.5 sm:px-1",
+                !reachable && "cursor-not-allowed opacity-[0.38]",
+                reachable && "cursor-pointer hover:bg-[color-mix(in_oklab,var(--ui-text)_5%,transparent)]",
+              )}
+            >
+              <span
+                className={cn(
+                  "h-2.5 w-2.5 shrink-0 rounded-full border-2 transition-[transform,box-shadow,border-color,background-color] sm:h-3 sm:w-3",
+                  completed && "border-[var(--ui-brand-green)] bg-[var(--ui-brand-green)]",
+                  active &&
+                    !completed &&
+                    "scale-110 border-[var(--ui-text)] bg-[var(--ui-text)] shadow-[0_0_0_4px_color-mix(in_oklab,var(--ui-brand-green)_32%,transparent)] dark:shadow-[0_0_0_4px_color-mix(in_oklab,var(--ui-brand-green)_45%,transparent)]",
+                  !active && !completed && "border-[var(--ui-border)] bg-[var(--ui-surface-elev)]",
+                )}
+              />
+              <span
+                className={cn(
+                  "max-w-[4.5rem] text-center text-[10px] font-medium leading-snug sm:max-w-none sm:text-xs",
+                  active && "font-semibold text-[var(--ui-text)]",
+                  !active && completed && "text-[var(--ui-muted)]",
+                  !active && !completed && "text-[var(--ui-muted)]",
+                )}
+              >
+                {s.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div
+        className="mt-6 sm:mt-8"
+        role="progressbar"
+        aria-valuemin={1}
+        aria-valuemax={total}
+        aria-valuenow={currentStep}
+        aria-label={`Campaign wizard step ${currentStep} of ${total}`}
+      >
+        <div className="relative h-1 w-full overflow-hidden rounded-full bg-[color-mix(in_oklab,var(--ui-border)_70%,var(--ui-surface-elev))] dark:bg-[color-mix(in_oklab,var(--ui-border)_55%,transparent)]">
+          <div
+            className="h-full min-w-[3px] rounded-full bg-[var(--ui-text)] transition-[width] duration-300 ease-out motion-reduce:transition-none dark:bg-[var(--ui-brand-green)]"
+            style={{ width: `${fillPct}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type SubmitStep = "idle" | "uploading" | "creating" | "signing" | "saving" | "done" | "error";
 
@@ -996,18 +1077,15 @@ export default function CreateCampaignPage() {
   /* ================================================================ */
 
   return (
-    <main className="app-page px-4 py-8 md:px-8">
-      <div className="app-surface mx-auto max-w-6xl overflow-hidden rounded-[28px]">
-        <section className="px-6 pb-8 pt-10 md:px-10 md:pb-10 md:pt-12">
+    <main className="app-page px-3 py-6 sm:px-4 sm:py-8 md:px-8">
+      <div className="app-surface mx-auto max-w-6xl overflow-hidden rounded-[20px] sm:rounded-[28px]">
+        <section className="px-4 pb-6 pt-8 sm:px-6 sm:pb-8 sm:pt-10 md:px-10 md:pb-10 md:pt-12">
 
           {/* ---- Page header ---- */}
           <div className="mx-auto mb-8 flex max-w-3xl flex-col items-center justify-center text-center">
-            <TextLabel2 as="p" className="brand-brown uppercase tracking-[0.18em] !text-center">
-              Amini Impact Layer
-            </TextLabel2>
             <TextTitle1
               as="h1"
-              className="app-text mt-4 text-3xl font-bold leading-[1.1] tracking-tight sm:text-4xl md:text-5xl !text-center"
+              className="app-text text-3xl font-bold leading-[1.1] tracking-tight sm:text-4xl md:text-5xl !text-center"
             >
               Create <span className="brand-green">Amini Campaign</span>
             </TextTitle1>
@@ -1122,40 +1200,14 @@ export default function CreateCampaignPage() {
             </div>
           )}
 
-          {/* ============================================================ */}
-          {/* Step Indicator                                                */}
-          {/* ============================================================ */}
-          {submitStep === "idle" && (
-            <div className="wizard-steps mx-auto mb-10 max-w-3xl">
-              <div className="wizard-steps-track">
-                {STEPS.map((s, i) => {
-                  const completed = currentStep > s.key;
-                  const active = currentStep === s.key;
-                  const reachable = isStepReachable(s.key);
-                  return (
-                    <button
-                      key={s.key}
-                      type="button"
-                      onClick={() => reachable && goToStep(s.key)}
-                      disabled={!reachable}
-                      className={`wizard-step ${active ? "wizard-step-active" : ""} ${completed ? "wizard-step-completed" : ""}`}
-                    >
-                      <span className="wizard-step-dot">
-                        {completed ? <Icon name="circleCheckmark" size="m" /> : <span>{s.key}</span>}
-                      </span>
-                      <span className="wizard-step-label">{s.label}</span>
-                      {i < STEPS.length - 1 && <span className="wizard-step-connector" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ============================================================ */}
-          {/* Step Content                                                  */}
-          {/* ============================================================ */}
           <div className="mx-auto max-w-3xl">
+            {submitStep === "idle" && (
+              <CampaignCreateStepper
+                currentStep={currentStep}
+                goToStep={goToStep}
+                isStepReachable={isStepReachable}
+              />
+            )}
 
             {/* ---- Submit progress ---- */}
             {submitStep !== "idle" && submitStep !== "done" && submitStep !== "error" && (
@@ -1234,15 +1286,7 @@ export default function CreateCampaignPage() {
             {/* ============================================================ */}
             {submitStep === "idle" && currentStep === 1 && (
               <div className="wizard-step-content">
-                <div className="campaign-card">
-                  <div className="campaign-card-header">
-                    <h2 className="campaign-card-title">Campaign Details</h2>
-                    <TextCaption as="span" className="app-muted">Step 1 of 5</TextCaption>
-                  </div>
-                  <TextBody as="p" className="app-muted mb-6 text-sm">
-                    Give your campaign a name, description, and an optional cover image.
-                  </TextBody>
-
+                <div className={cn(WIZARD_CARD_CLASS)}>
                   {/* Campaign Name */}
                   <div className="campaign-field">
                     <label className="campaign-label">
@@ -1364,17 +1408,33 @@ export default function CreateCampaignPage() {
                       </button>
                     )}
                   </div>
-                </div>
 
-                {/* Navigation */}
-                <div className="wizard-nav">
-                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
-                    Save Draft
-                  </Button>
-                  <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext} disabled={!step1Valid}>
-                    Continue
-                  </Button>
+                  <div className="mt-8 flex flex-col gap-3 border-t border-[var(--ui-border)] pt-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="hidden min-h-[44px] sm:block sm:min-w-[7rem]" aria-hidden />
+                    <div className="flex w-full flex-wrap justify-end gap-2 sm:ml-auto sm:w-auto sm:gap-3">
+                      <Button
+                        variant="secondary"
+                        className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                        start={<Icon name="save" size="s" />}
+                        onClick={handleSaveDraft}
+                      >
+                        Save draft
+                      </Button>
+                      <Button
+                        variant="primary"
+                        className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                        end={<ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />}
+                        onClick={goNext}
+                        disabled={!step1Valid}
+                      >
+                        Continue
+                      </Button>
+                    </div>
+                  </div>
                 </div>
+                <p className="mt-6 text-center text-sm text-[var(--ui-muted)]">
+                  Step 1 of 5: {STEPS[0].label}
+                </p>
               </div>
             )}
 
@@ -1383,12 +1443,11 @@ export default function CreateCampaignPage() {
             {/* ============================================================ */}
             {submitStep === "idle" && currentStep === 2 && (
               <div className="wizard-step-content">
-                <div className="campaign-card">
-                  <div className="campaign-card-header">
-                    <h2 className="campaign-card-title">Budget & milestones</h2>
-                    <TextCaption as="span" className="app-muted">Step 2 of 5</TextCaption>
-                  </div>
-                  <TextBody as="p" className="app-muted mb-6 text-sm">
+                <div className={cn(WIZARD_CARD_CLASS)}>
+                  <h2 className="text-xl font-bold tracking-tight text-[var(--ui-text)] sm:text-2xl">
+                    Budget & milestones
+                  </h2>
+                  <TextBody as="p" className="app-muted mt-2 mb-6 text-sm leading-relaxed sm:text-[15px]">
                     Set your total budget first—it is the single source of truth. Milestone payouts are slices of that
                     budget and must add up exactly. Optional outcomes mirror how programs like{" "}
                     <span className="font-medium text-[var(--ui-text)]">Karma GAP</span> expect measurable indicators.
@@ -1639,22 +1698,39 @@ export default function CreateCampaignPage() {
                     </div>
                   )}
 
-                </div>
-
-                {/* Navigation */}
-                <div className="wizard-nav">
-                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
-                    Back
-                  </Button>
-                  <div className="flex gap-3">
-                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
-                      Save Draft
+                  <div className="mt-8 flex flex-col gap-3 border-t border-[var(--ui-border)] pt-6 sm:flex-row sm:items-center sm:justify-between">
+                    <Button
+                      variant="secondary"
+                      className="campaign-btn-draft order-2 w-full sm:order-1 sm:w-auto [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                      start={<ChevronLeft className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />}
+                      onClick={goBack}
+                    >
+                      Back
                     </Button>
-                    <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext} disabled={!step2Valid}>
-                      Continue
-                    </Button>
+                    <div className="order-1 flex w-full flex-wrap justify-end gap-2 sm:order-2 sm:w-auto sm:gap-3">
+                      <Button
+                        variant="secondary"
+                        className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                        start={<Icon name="save" size="s" />}
+                        onClick={handleSaveDraft}
+                      >
+                        Save draft
+                      </Button>
+                      <Button
+                        variant="primary"
+                        className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                        end={<ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />}
+                        onClick={goNext}
+                        disabled={!step2Valid}
+                      >
+                        Continue
+                      </Button>
+                    </div>
                   </div>
                 </div>
+                <p className="mt-6 text-center text-sm text-[var(--ui-muted)]">
+                  Step 2 of 5: {STEPS[1].label}
+                </p>
               </div>
             )}
 
@@ -1663,12 +1739,11 @@ export default function CreateCampaignPage() {
             {/* ============================================================ */}
             {submitStep === "idle" && currentStep === 3 && (
               <div className="wizard-step-content">
-                <div className="campaign-card">
-                  <div className="campaign-card-header">
-                    <h2 className="campaign-card-title">Expected outcomes & measurement</h2>
-                    <TextCaption as="span" className="app-muted">Step 3 of 5</TextCaption>
-                  </div>
-                  <TextBody as="p" className="app-muted mb-4 text-sm">
+                <div className={cn(WIZARD_CARD_CLASS)}>
+                  <h2 className="text-xl font-bold tracking-tight text-[var(--ui-text)] sm:text-2xl">
+                    Expected outcomes & measurement
+                  </h2>
+                  <TextBody as="p" className="app-muted mt-2 mb-4 text-sm leading-relaxed sm:text-[15px]">
                     Define a small set of outcome indicators so donors and evaluators can see what success looks like.
                     This is optional but strongly recommended—similar to how programs like{" "}
                     <span className="font-medium text-[var(--ui-text)]">Karma GAP</span> structure project reporting.
@@ -1772,23 +1847,39 @@ export default function CreateCampaignPage() {
                   >
                     + Add outcome indicator
                   </button>
-                </div>
 
-                {/* Navigation */}
-                <div className="wizard-nav">
-                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
-                    Back
-                  </Button>
-                  <div className="flex gap-3">
-                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
-                      Save Draft
+                  <div className="mt-8 flex flex-col gap-3 border-t border-[var(--ui-border)] pt-6 sm:flex-row sm:items-center sm:justify-between">
+                    <Button
+                      variant="secondary"
+                      className="campaign-btn-draft order-2 w-full sm:order-1 sm:w-auto [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                      start={<ChevronLeft className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />}
+                      onClick={goBack}
+                    >
+                      Back
                     </Button>
-                    <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext}>
-                      Continue
-                    </Button>
+                    <div className="order-1 flex w-full flex-wrap justify-end gap-2 sm:order-2 sm:w-auto sm:gap-3">
+                      <Button
+                        variant="secondary"
+                        className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                        start={<Icon name="save" size="s" />}
+                        onClick={handleSaveDraft}
+                      >
+                        Save draft
+                      </Button>
+                      <Button
+                        variant="primary"
+                        className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                        end={<ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />}
+                        onClick={goNext}
+                      >
+                        Continue
+                      </Button>
+                    </div>
                   </div>
                 </div>
-
+                <p className="mt-6 text-center text-sm text-[var(--ui-muted)]">
+                  Step 3 of 5: {STEPS[2].label}
+                </p>
               </div>
             )}
 
@@ -1797,12 +1888,11 @@ export default function CreateCampaignPage() {
             {/* ============================================================ */}
             {submitStep === "idle" && currentStep === 4 && (
               <div className="wizard-step-content">
-                <div className="campaign-card">
-                  <div className="campaign-card-header">
-                    <h2 className="campaign-card-title">Verification & Escrow</h2>
-                    <TextCaption as="span" className="app-muted">Step 4 of 5</TextCaption>
-                  </div>
-                  <TextBody as="p" className="app-muted mb-6 text-sm">
+                <div className={cn(WIZARD_CARD_CLASS)}>
+                  <h2 className="text-xl font-bold tracking-tight text-[var(--ui-text)] sm:text-2xl">
+                    Verification & escrow
+                  </h2>
+                  <TextBody as="p" className="app-muted mt-2 mb-6 text-sm leading-relaxed sm:text-[15px]">
                     Configure attestation requirements and payment options.
                   </TextBody>
 
@@ -1828,20 +1918,39 @@ export default function CreateCampaignPage() {
                     </label>
                   </div>
 
-                  <div className="wizard-nav">
-                    <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
+                  <div className="mt-8 flex flex-col gap-3 border-t border-[var(--ui-border)] pt-6 sm:flex-row sm:items-center sm:justify-between">
+                    <Button
+                      variant="secondary"
+                      className="campaign-btn-draft order-2 w-full sm:order-1 sm:w-auto [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                      start={<ChevronLeft className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />}
+                      onClick={goBack}
+                    >
                       Back
                     </Button>
-                    <div className="flex gap-3">
-                      <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="save" size="s" />} onClick={handleSaveDraft}>
-                        Save Draft
+                    <div className="order-1 flex w-full flex-wrap justify-end gap-2 sm:order-2 sm:w-auto sm:gap-3">
+                      <Button
+                        variant="secondary"
+                        className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                        start={<Icon name="save" size="s" />}
+                        onClick={handleSaveDraft}
+                      >
+                        Save draft
                       </Button>
-                      <Button variant="primary" className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2" end={<Icon name="caretRight" size="s" />} onClick={goNext} disabled={!step3Valid}>
+                      <Button
+                        variant="primary"
+                        className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                        end={<ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />}
+                        onClick={goNext}
+                        disabled={!step3Valid}
+                      >
                         Continue
                       </Button>
                     </div>
                   </div>
                 </div>
+                <p className="mt-6 text-center text-sm text-[var(--ui-muted)]">
+                  Step 4 of 5: {STEPS[3].label}
+                </p>
               </div>
             )}
 
@@ -1850,12 +1959,11 @@ export default function CreateCampaignPage() {
             {/* ============================================================ */}
             {submitStep === "idle" && currentStep === 5 && (
               <div className="wizard-step-content">
-                <div className="campaign-card">
-                  <div className="campaign-card-header">
-                    <h2 className="campaign-card-title">Review & Launch</h2>
-                    <TextCaption as="span" className="app-muted">Step 5 of 5</TextCaption>
-                  </div>
-                  <TextBody as="p" className="app-muted mb-6 text-sm">
+                <div className={cn(WIZARD_CARD_CLASS)}>
+                  <h2 className="text-xl font-bold tracking-tight text-[var(--ui-text)] sm:text-2xl">
+                    Review & launch
+                  </h2>
+                  <TextBody as="p" className="app-muted mt-2 mb-6 text-sm leading-relaxed sm:text-[15px]">
                     Review all details before creating your campaign on-chain.
                   </TextBody>
 
@@ -1946,7 +2054,7 @@ export default function CreateCampaignPage() {
                   <div className="wizard-review-section bg-[var(--ui-surface-elev)]/30 p-5 rounded-2xl border border-[var(--ui-border)]">
                     <div className="wizard-review-header">
                       <TextLabel1 as="h3" className="brand-green font-bold text-base">Verification & Escrow</TextLabel1>
-                      <button type="button" onClick={() => goToStep(3)} className="wizard-review-edit">
+                      <button type="button" onClick={() => goToStep(4)} className="wizard-review-edit">
                         <Icon name="pencil" size="s" className="mr-1" /> Edit
                       </button>
                     </div>
@@ -1971,10 +2079,9 @@ export default function CreateCampaignPage() {
                       )}
                     </div>
                   </div>
-                </div>
 
                 {/* Terms Acknowledgment */}
-                <div className="mt-4 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-4 dark:bg-[var(--ui-surface)]">
+                <div className="mt-6 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)]/80 p-4 dark:bg-[var(--ui-surface)]">
                   <label className="flex cursor-pointer items-start gap-3">
                     <input
                       type="checkbox"
@@ -2026,23 +2133,34 @@ export default function CreateCampaignPage() {
                   </div>
                 )}
 
-                {/* Launch buttons */}
-                <div className="wizard-nav">
-                  <Button variant="secondary" className="campaign-btn-draft [&>span]:flex [&>span]:items-center [&>span]:gap-2" start={<Icon name="caretLeft" size="s" />} onClick={goBack}>
+                <div className="mt-8 flex flex-col gap-3 border-t border-[var(--ui-border)] pt-6 sm:flex-row sm:items-center sm:justify-between">
+                  <Button
+                    variant="secondary"
+                    className="campaign-btn-draft order-2 w-full sm:order-1 sm:w-auto [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                    start={<ChevronLeft className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />}
+                    onClick={goBack}
+                  >
                     Back
                   </Button>
                   <Button
                     variant="primary"
-                    className="campaign-btn-launch [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+                    className="campaign-btn-launch order-1 w-full sm:order-2 sm:w-auto [&>span]:flex [&>span]:items-center [&>span]:gap-2"
                     onClick={handleSubmit}
                     disabled={!canSubmit || isPendingCreate || isConfirmingCreate}
-                    start={(!(isSubmitting || isPendingCreate || isConfirmingCreate)) ? <Icon name="add" size="s" /> : undefined}
+                    end={
+                      !(isSubmitting || isPendingCreate || isConfirmingCreate) ? (
+                        <ChevronRight className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+                      ) : undefined
+                    }
+                    start={isSubmitting || isPendingCreate || isConfirmingCreate ? <Spinner size={2} /> : undefined}
                   >
-                    {isSubmitting || isPendingCreate || isConfirmingCreate
-                      ? "Creating..."
-                      : "Launch Campaign"}
+                    {isSubmitting || isPendingCreate || isConfirmingCreate ? "Creating…" : "Launch campaign"}
                   </Button>
                 </div>
+                </div>
+                <p className="mt-6 text-center text-sm text-[var(--ui-muted)]">
+                  Step 5 of 5: {STEPS[4].label}
+                </p>
               </div>
             )}
 

@@ -25,11 +25,11 @@ const activityItems = [
 
 export default function HomePage() {
   return (
-    <main className="app-page px-4 py-8 md:px-8">
-      <div className="app-surface mx-auto max-w-6xl overflow-hidden rounded-[28px]">
+    <main className="app-page px-3 py-6 sm:px-4 sm:py-8 md:px-8">
+      <div className="app-surface mx-auto max-w-6xl overflow-hidden rounded-[20px] sm:rounded-[28px]">
         <section
           id="overview"
-          className="scroll-mt-24 px-6 pb-8 pt-10 md:px-10 md:pb-10 md:pt-12"
+          className="scroll-mt-24 px-4 pb-6 pt-8 sm:px-6 sm:pb-8 sm:pt-10 md:px-10 md:pb-10 md:pt-12"
         >
           <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
             <TextLabel2
@@ -40,7 +40,7 @@ export default function HomePage() {
             </TextLabel2>
             <TextTitle1
               as="h1"
-              className="app-text mt-4 block w-full text-4xl font-bold leading-[1.1] tracking-tight sm:text-5xl md:text-6xl"
+              className="app-text mt-4 block w-full text-3xl font-bold leading-[1.1] tracking-tight sm:text-5xl md:text-6xl"
             >
               See Your Impact, <span className="brand-green">Second by Second.</span>
               <br />
@@ -60,14 +60,14 @@ export default function HomePage() {
           </div>
 
           <div
-            className="mt-8 rounded-xl border px-5 py-4"
+            className="mt-6 rounded-xl border px-4 py-3 sm:mt-8 sm:px-5 sm:py-4"
             style={{
               borderColor: "color-mix(in oklab, var(--ui-brand-brown) 40%, var(--ui-border))",
               background:
                 "linear-gradient(90deg, color-mix(in oklab, var(--ui-brand-brown-soft) 88%, transparent), color-mix(in oklab, var(--ui-brand-green) 24%, var(--ui-surface)))",
             }}
           >
-            <TextTitle2 as="p" className="app-text text-2xl font-bold leading-tight md:text-4xl">
+            <TextTitle2 as="p" className="app-text text-xl font-bold leading-tight sm:text-2xl md:text-4xl">
               Track Your Funding
             </TextTitle2>
             <TextBody as="p" className="app-muted mt-1">
@@ -100,7 +100,7 @@ export default function HomePage() {
             <div className="space-y-3">
               {activityItems.map((item) => (
                 <article key={item.title} className="app-surface-elev p-3 shadow-sm">
-                  <div className="grid grid-cols-[88px_1fr] gap-3">
+                  <div className="grid grid-cols-[64px_1fr] gap-3 sm:grid-cols-[88px_1fr]">
                     <div
                       className="h-20 rounded-sm border"
                       style={{

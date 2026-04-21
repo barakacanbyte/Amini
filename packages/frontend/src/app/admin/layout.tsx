@@ -4,7 +4,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="app-page">
       <div className="border-b border-[var(--ui-border)] bg-[var(--ui-surface)]">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 sm:py-4">
           <Link href="/admin" className="app-text text-lg font-semibold">
             Amini · Team
           </Link>
@@ -16,7 +16,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </Link>
         </div>
       </div>
-      <div className="mx-auto max-w-6xl px-6 py-10">{children}</div>
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">{children}</div>
     </div>
   );
 }

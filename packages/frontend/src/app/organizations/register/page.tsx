@@ -154,8 +154,8 @@ export default function RegisterOrganizationPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--ui-bg)] pt-24 pb-16">
-      <div className="max-w-6xl mx-auto w-full px-4">
+    <main className="min-h-screen bg-[var(--ui-bg)] pt-16 pb-12 sm:pt-24 sm:pb-16">
+      <div className="max-w-6xl mx-auto w-full px-3 sm:px-4">
         {/* Top Back Link */}
         <Link 
           href="/campaigns/create" 
@@ -173,7 +173,7 @@ export default function RegisterOrganizationPage() {
               Join the Network
             </TextCaption>
             
-            <TextTitle1 as="h1" className="text-[#fdfaf6] text-4xl lg:text-[3.25rem] font-bold tracking-tight m-0 block leading-[1.1]">
+            <TextTitle1 as="h1" className="text-[#fdfaf6] text-3xl sm:text-4xl lg:text-[3.25rem] font-bold tracking-tight m-0 block leading-[1.1]">
               Register Your <br className="hidden lg:block" /><span className="text-[var(--ui-brand-green)]">Organization</span>
             </TextTitle1>
             

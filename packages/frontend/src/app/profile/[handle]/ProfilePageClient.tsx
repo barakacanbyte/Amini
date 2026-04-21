@@ -122,6 +122,7 @@ export function ProfilePageClient({
   const [avatarUrl, setAvatarUrl] = useState((initialProfile?.avatar_url ?? "").trim());
   const [profileSlug, setProfileSlug] = useState(initialProfile?.profile_slug ?? "");
   const [copyHint, setCopyHint] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const [origin, setOrigin] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -411,230 +412,164 @@ export function ProfilePageClient({
   const showEditChrome = isOwner && mode === "edit";
   const viewMode = !isOwner || mode === "preview";
 
-  const titleName = useMemo(() => {
-    const n = name.trim();
-    if (n) return n;
-    return shortAddress(wallet);
-  }, [name, wallet]);
-
   return (
-    <main className="app-page pt-24 pb-16">
-      <div className="mx-auto w-full max-w-3xl px-4">
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <TextCaption className="mb-1 block uppercase tracking-wider text-[var(--ui-muted)]">
-              Profile
-            </TextCaption>
-            <TextTitle2 as="h1" className="text-[var(--ui-text)]">
-              {titleName}
-            </TextTitle2>
-            <TextBody className="mt-1 font-mono text-sm text-[var(--ui-muted)]">{wallet}</TextBody>
-          </div>
-          {isOwner ? (
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-1">
-              <Button
-                type="button"
-                variant={mode === "edit" ? "primary" : "secondary"}
-                className="!min-h-9"
-                onClick={() => {
-                  if (mode === "edit") {
-                    resetFromInitial();
-                    setMode("preview");
-                    setMessage(null);
-                    setAvatarError(null);
-                    return;
-                  }
-
-                  setMode("edit");
-                  setMessage(null);
-                  setAvatarError(null);
-                }}
-              >
-                {mode === "edit" ? (
-                  "Cancel"
-                ) : (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Icon name="pencil" size="s" />
-                    Edit
-                  </span>
-                )}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="relative overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] shadow-[var(--ui-shadow-md)]">
+    <main className="app-page pt-12 pb-16 sm:pt-20 sm:pb-24">
+      <div className="mx-auto w-full max-w-2xl px-4 sm:px-6">
+        {/* Main Profile Card */}
+        <div className="relative mt-6 overflow-hidden rounded-3xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] shadow-lg">
           <SavingOverlayCard
             open={saving}
             title="Saving your profile"
             subtitle="Signing and uploading can take a few seconds. You can keep this tab open."
             spinnerLabel="Saving profile"
           />
-          <div className="h-28 bg-gradient-to-r from-[var(--ui-brand-green)]/25 to-[var(--ui-brand-brown)]/25" />
-          <div className="relative px-6 pb-8 pt-0">
-            <div className="-mt-14 flex flex-col gap-5 sm:flex-row sm:items-end sm:gap-8">
-              <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-2xl border-4 border-[var(--ui-surface-elev)] bg-[var(--ui-surface)] shadow-md">
-                {showAvatarImage ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- IPFS / Filebase gateways are not reliably optimized via next/image
-                  <img
-                    key={displayAvatar ?? ""}
-                    src={displayAvatar!}
-                    alt=""
-                    referrerPolicy="no-referrer"
-                    className="absolute inset-0 h-full w-full object-cover"
-                    onError={() => setAvatarLoadFailed(true)}
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-[var(--ui-muted)]">
-                    <Icon name="account" size="l" />
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0 flex-1 pb-1 sm:pb-2">
-                {viewMode ? (
-                  <div className="flex flex-col">
-                    <h2 className="text-balance text-2xl font-semibold leading-tight tracking-tight text-[var(--ui-text)] sm:text-[1.875rem] sm:leading-[1.15]">
-                      {name.trim() || "Anonymous donor"}
-                    </h2>
-                    {headline.trim() ? (
-                      <p className="mt-2.5 max-w-2xl text-pretty text-base font-normal leading-relaxed text-[var(--ui-muted)] sm:mt-3 sm:text-lg sm:leading-relaxed">
-                        {headline}
-                      </p>
-                    ) : null}
-                    <div
-                      className={`flex flex-wrap gap-2 ${headline.trim() ? "mt-4 border-t border-[var(--ui-border)] pt-4" : "mt-4"}`}
-                      aria-label="Profile details"
-                    >
-                      <span className={chipClass}>{shortAddress(wallet)}</span>
-                      {location.trim() ? (
-                        <span className={chipClass}>
-                          <span className="inline-flex items-center gap-1">
-                            <Icon name="location" size="s" />
-                            {location}
-                          </span>
-                        </span>
-                      ) : null}
-                      {email.trim() ? <span className={chipClass}>{email}</span> : null}
+
+          {/* Subtle gradient background */}
+          <div className="absolute inset-0 bg-gradient-to-b from-[var(--ui-brand-green)]/5 via-transparent to-transparent" />
+
+          {isOwner ? (
+            <Button
+              type="button"
+              variant={mode === "edit" ? "primary" : "secondary"}
+              compact
+              accessibilityLabel={mode === "edit" ? "Cancel editing" : "Edit profile"}
+              className="absolute right-4 top-4 z-10 !flex !h-9 !w-9 !min-h-9 !max-w-9 !items-center !justify-center !rounded-full !p-0 shadow-md ring-2 ring-[var(--ui-surface-elev)] sm:right-5 sm:top-5"
+              onClick={() => {
+                if (mode === "edit") {
+                  resetFromInitial();
+                  setMode("preview");
+                  setMessage(null);
+                  setAvatarError(null);
+                  return;
+                }
+                setMode("edit");
+                setMessage(null);
+                setAvatarError(null);
+              }}
+            >
+              {mode === "edit" ? (
+                <Icon name="close" size="s" aria-hidden />
+              ) : (
+                <Icon name="pencil" size="s" aria-hidden />
+              )}
+            </Button>
+          ) : null}
+
+          <div className="relative px-6 py-10 sm:px-10 sm:py-12">
+            {/* Avatar - Centered */}
+            <div className="mx-auto mb-6 flex justify-center">
+              <div className="relative inline-block">
+                <div className="h-28 w-28 overflow-hidden rounded-full border-4 border-[var(--ui-surface-elev)] bg-[var(--ui-surface)] shadow-md sm:h-32 sm:w-32">
+                  {showAvatarImage ? (
+                    <img
+                      key={displayAvatar ?? ""}
+                      src={displayAvatar!}
+                      alt=""
+                      referrerPolicy="no-referrer"
+                      className="h-full w-full object-cover"
+                      onError={() => setAvatarLoadFailed(true)}
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-[var(--ui-muted)]">
+                      <Icon name="account" size="l" />
                     </div>
-                  </div>
-                ) : (
-                  <TextCaption className="text-[var(--ui-muted)]">
-                    Edit fields below, then save.
-                  </TextCaption>
-                )}
+                  )}
+                </div>
+                <div className="absolute bottom-1 right-1 h-5 w-5 rounded-full border-3 border-[var(--ui-surface-elev)] bg-[var(--ui-brand-green)]" />
               </div>
             </div>
 
-            {showEditChrome ? (
-              <div className="mt-8 space-y-4 border-t border-[var(--ui-border)] pt-8">
-                <div>
-                  <TextCaption className="mb-2 block text-[var(--ui-muted)]">Display name</TextCaption>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className={fieldInputClass}
-                    autoComplete="name"
-                  />
-                </div>
-                <div>
-                  <TextCaption className="mb-2 block text-[var(--ui-muted)]">Email</TextCaption>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className={fieldInputClass}
-                    autoComplete="email"
-                  />
-                </div>
-                <div>
-                  <TextCaption className="mb-2 block text-[var(--ui-muted)]">Headline</TextCaption>
-                  <input
-                    type="text"
-                    value={headline}
-                    onChange={(e) => setHeadline(e.target.value)}
-                    placeholder="e.g. Climate donor · Base"
-                    className={fieldInputClass}
-                  />
-                </div>
-                <div>
-                  <TextCaption className="mb-2 block text-[var(--ui-muted)]">Public username</TextCaption>
-                  <input
-                    type="text"
-                    value={profileSlug}
-                    onChange={(e) => setProfileSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-                    placeholder="e.g. man-of-tomorrow"
-                    className={fieldInputClass}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <p className="mt-1.5 text-xs text-[var(--ui-muted)]">{describeProfileSlugRules()} Leave empty to use your wallet address in links.</p>
-                </div>
-                <div>
-                  <TextCaption className="mb-2 block text-[var(--ui-muted)]">Location</TextCaption>
-                  <input
-                    type="text"
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    className={fieldInputClass}
-                    autoComplete="address-level2"
-                  />
-                </div>
-                <div>
-                  <TextCaption className="mb-2 block text-[var(--ui-muted)]">Bio</TextCaption>
-                  <textarea
-                    value={bio}
-                    onChange={(e) => setBio(e.target.value)}
-                    placeholder="A short bio visible on your public profile."
-                    rows={5}
-                    className={`${fieldInputClass} min-h-[120px] resize-y`}
-                  />
-                </div>
-                {/* Profile photo — same pattern as organization registration logo upload */}
-                <div className="mb-2">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <span className="flex h-4 w-4 items-center justify-center app-muted">
-                        <Icon name="image" size="s" color="currentColor" />
+            {/* Profile Info - Centered */}
+            <div className="text-center">
+              {viewMode ? (
+                <>
+                  <h1 className="text-balance text-2xl font-semibold leading-tight tracking-tight text-[var(--ui-text)] sm:text-3xl">
+                    {name.trim() || "Anonymous donor"}
+                  </h1>
+                  {headline.trim() ? (
+                    <p className="mx-auto mt-2 max-w-md text-pretty text-base font-medium text-[var(--ui-brand-green)]">
+                      {headline}
+                    </p>
+                  ) : null}
+
+                  {/* Contact Chips */}
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-1 text-xs text-[var(--ui-muted)]">
+                      <Icon name="wallet" size="s" />
+                      {shortAddress(wallet)}
+                    </span>
+                    {location.trim() ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-1 text-xs text-[var(--ui-muted)]">
+                        <Icon name="location" size="s" />
+                        {location}
                       </span>
-                      <span className="app-text text-sm font-medium">Profile photo</span>
-                    </div>
-                    <span className="app-muted text-xs font-normal">(optional)</span>
+                    ) : null}
+                    {email.trim() ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-1 text-xs text-[var(--ui-muted)]">
+                        <Icon name="email" size="s" />
+                        {email}
+                      </span>
+                    ) : null}
                   </div>
 
-                  <div className="relative group">
+                  {/* Action Buttons */}
+                  {origin && (
+                    <div className="mt-6 flex items-center justify-center gap-2">
+                      <Button
+                        variant="secondary"
+                        onClick={() => setShareOpen(true)}
+                        className="!min-h-9"
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <Icon name="share" size="s" />
+                          Share
+                        </span>
+                      </Button>
+                      {showProfileDm && (
+                        <Button
+                          variant="primary"
+                          onClick={() => setXmtpPanelOpen(true)}
+                          className="!min-h-9"
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            <Icon name="chat" size="s" />
+                            Message
+                          </span>
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <TextCaption className="text-[var(--ui-muted)]">
+                  Edit your profile below
+                </TextCaption>
+              )}
+            </div>
+
+            {/* Edit Form */}
+            {showEditChrome ? (
+              <div className="mt-8 space-y-5 border-t border-[var(--ui-border)] pt-8">
+                {/* Avatar Upload */}
+                <div className="flex flex-col items-center gap-4 sm:flex-row">
+                  <div className="relative">
                     {avatarPreview ? (
-                      <div className="group relative h-32 w-32 overflow-hidden rounded-2xl border-2 border-[var(--ui-brand-green)]">
-                        {/* eslint-disable-next-line @next/next/no-img-element -- data URL preview, same as org register */}
-                        <img
-                          key={avatarPreview}
-                          src={avatarPreview}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
+                      <div className="relative h-24 w-24 overflow-hidden rounded-full border-4 border-[var(--ui-brand-green)]">
+                        <img src={avatarPreview} alt="" className="h-full w-full object-cover" />
                         <button
                           type="button"
                           onClick={clearAvatar}
-                          className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
-                          aria-label="Remove selected photo"
+                          className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity hover:opacity-100"
+                          aria-label="Remove"
                         >
-                          <span className="rounded-full bg-white/20 p-2 backdrop-blur-md">
-                            <Icon name="trashCan" size="s" className="text-white" />
-                          </span>
+                          <Icon name="trashCan" size="s" className="text-white" />
                         </button>
                       </div>
                     ) : staticResolvedAvatar ? (
-                      <label className="relative flex h-32 w-32 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border-2 border-[var(--ui-border)] transition-all hover:border-[var(--ui-brand-green)] hover:bg-[var(--ui-brand-green)]/5">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          key={staticResolvedAvatar}
-                          src={staticResolvedAvatar}
-                          alt=""
-                          referrerPolicy="no-referrer"
-                          className="h-full w-full object-cover"
-                        />
+                      <label className="relative block h-24 w-24 cursor-pointer overflow-hidden rounded-full border-4 border-[var(--ui-border)] transition-all hover:border-[var(--ui-brand-green)]">
+                        <img src={staticResolvedAvatar} alt="" className="h-full w-full object-cover" />
                         <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all hover:bg-black/40 hover:opacity-100">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-white">Change</span>
+                          <Icon name="edit" size="s" className="text-white" />
                         </span>
                         <input
                           key={avatarFileInputKey}
@@ -645,11 +580,8 @@ export function ProfilePageClient({
                         />
                       </label>
                     ) : (
-                      <label className="flex h-32 w-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--ui-border)] transition-all hover:border-[var(--ui-brand-green)] hover:bg-[var(--ui-brand-green)]/5">
-                        <Icon name="upload" size="m" className="mb-2 text-[var(--ui-muted)]" />
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ui-muted)]">
-                          Upload
-                        </span>
+                      <label className="flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-4 border-dashed border-[var(--ui-border)] transition-all hover:border-[var(--ui-brand-green)] hover:bg-[var(--ui-brand-green)]/5">
+                        <Icon name="camera" size="m" className="text-[var(--ui-muted)]" />
                         <input
                           key={avatarFileInputKey}
                           type="file"
@@ -660,146 +592,147 @@ export function ProfilePageClient({
                       </label>
                     )}
                   </div>
-                  {avatarError ? <div className="mt-2 text-xs font-medium text-red-500">{avatarError}</div> : null}
+                  <div className="flex-1 text-center sm:text-left">
+                    <TextCaption className="text-[var(--ui-muted)]">Profile photo</TextCaption>
+                    {avatarError ? <p className="mt-1 text-xs text-red-500">{avatarError}</p> : null}
+                  </div>
                 </div>
+
+                {/* Form Fields - 2 columns on desktop */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <TextCaption className="mb-1.5 block text-[var(--ui-muted)]">Display name</TextCaption>
+                    <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={fieldInputClass} />
+                  </div>
+                  <div>
+                    <TextCaption className="mb-1.5 block text-[var(--ui-muted)]">Public username</TextCaption>
+                    <input
+                      type="text"
+                      value={profileSlug}
+                      onChange={(e) => setProfileSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                      placeholder="e.g. john-doe"
+                      className={fieldInputClass}
+                    />
+                    <p className="mt-1 text-xs text-[var(--ui-muted)]">{describeProfileSlugRules()}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <TextCaption className="mb-1.5 block text-[var(--ui-muted)]">Headline</TextCaption>
+                  <input
+                    type="text"
+                    value={headline}
+                    onChange={(e) => setHeadline(e.target.value)}
+                    placeholder="e.g. Climate donor · Base"
+                    className={fieldInputClass}
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <TextCaption className="mb-1.5 block text-[var(--ui-muted)]">Email</TextCaption>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={fieldInputClass} />
+                  </div>
+                  <div>
+                    <TextCaption className="mb-1.5 block text-[var(--ui-muted)]">Location</TextCaption>
+                    <input type="text" value={location} onChange={(e) => setLocation(e.target.value)} className={fieldInputClass} />
+                  </div>
+                </div>
+
+                <div>
+                  <TextCaption className="mb-1.5 block text-[var(--ui-muted)]">Bio</TextCaption>
+                  <textarea
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value)}
+                    placeholder="Tell us about yourself..."
+                    rows={4}
+                    className={`${fieldInputClass} min-h-[100px] resize-y`}
+                  />
+                </div>
+
                 <div className="flex flex-wrap gap-3 pt-2">
                   <Button variant="primary" onClick={() => void save()} disabled={saving}>
-                    {saving ? "Saving…" : "Save profile"}
+                    {saving ? "Saving…" : "Save changes"}
                   </Button>
-                  <Button
-                    variant="secondary"
-                    type="button"
-                    onClick={() => {
-                      resetFromInitial();
-                      setMode("preview");
-                      setMessage(null);
-                      setAvatarError(null);
-                    }}
-                    disabled={saving}
-                  >
+                  <Button variant="secondary" onClick={() => { resetFromInitial(); setMode("preview"); setMessage(null); setAvatarError(null); }} disabled={saving}>
                     Cancel
                   </Button>
                 </div>
               </div>
             ) : null}
 
+            {/* About Section */}
             {viewMode && bio.trim() ? (
               <div className="mt-8 border-t border-[var(--ui-border)] pt-8">
-                <TextCaption className="mb-2 block uppercase tracking-wider text-[var(--ui-muted)]">
-                  About
-                </TextCaption>
+                <TextCaption className="mb-3 block uppercase tracking-wider text-[var(--ui-muted)]">About</TextCaption>
                 <TextBody className="whitespace-pre-wrap text-[var(--ui-text)]">{bio}</TextBody>
               </div>
             ) : null}
 
+            {/* Organizations Section */}
             {viewMode && activity.organizations.length > 0 ? (
               <div className="mt-8 border-t border-[var(--ui-border)] pt-8">
-                <TextCaption className="mb-2 block uppercase tracking-wider text-[var(--ui-muted)]">
-                  Organizations
-                </TextCaption>
-                <ul className="space-y-3">
+                <TextCaption className="mb-3 block uppercase tracking-wider text-[var(--ui-muted)]">Organizations</TextCaption>
+                <div className="grid gap-2 sm:grid-cols-2">
                   {activity.organizations.map((o) => (
-                    <li key={o.id}>
-                      <Link
-                        href={`/organizations/${o.id}`}
-                        className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3 transition-colors hover:border-[var(--ui-brand-green)]/50"
-                      >
-                        <Icon name="peopleGroup" size="s" className="text-[var(--ui-muted)]" />
-                        <span className="font-medium text-[var(--ui-text)]">{o.name}</span>
-                        <span className={orgStatusChipClass(o.status)}>{o.status}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {viewMode && activity.deposits.length > 0 ? (
-              <div className="mt-8 border-t border-[var(--ui-border)] pt-8">
-                <TextCaption className="mb-2 block uppercase tracking-wider text-[var(--ui-muted)]">
-                  Donations &amp; support
-                </TextCaption>
-                <TextBody className="mb-3 text-sm text-[var(--ui-muted)]">
-                  Escrow deposits recorded for this wallet (indexed on-chain activity).
-                </TextBody>
-                <ul className="space-y-2">
-                  {activity.deposits.map((d) => (
-                    <li key={d.tx_hash}>
-                      <Link
-                        href={`/campaigns/${d.campaign_id}`}
-                        className="flex flex-wrap items-baseline justify-between gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3 text-sm transition-colors hover:border-[var(--ui-brand-green)]/50"
-                      >
-                        <span className="font-medium text-[var(--ui-text)]">
-                          {d.campaign_title?.trim() || `Campaign #${d.campaign_id}`}
-                        </span>
-                        <span className="text-[var(--ui-brand-green)]">
-                          +{formatDepositAmount(d.amount)}
-                        </span>
-                        <span className="w-full text-xs text-[var(--ui-muted)]">
-                          {new Date(d.created_at).toLocaleDateString(undefined, {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {viewMode && origin ? (
-              <div className="mt-8 border-t border-[var(--ui-border)] pt-8">
-                <TextCaption className="mb-1 block uppercase tracking-wider text-[var(--ui-muted)]">
-                  Share profile
-                </TextCaption>
-                <TextBody className="text-sm text-[var(--ui-muted)]">
-                  {profileSlug.trim()
-                    ? "Short link using your public username."
-                    : "Link uses your wallet until you set a public username in Edit."}
-                </TextBody>
-                <div className="mt-4 flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-8">
-                  <div className="flex shrink-0 justify-center rounded-xl border border-[var(--ui-border)] bg-white p-3 dark:bg-[var(--ui-surface)] sm:justify-start">
-                    <QRCodeSVG value={shareUrl} size={132} level="M" includeMargin={false} />
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-3">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-[var(--ui-muted)]" htmlFor="profile-share-url">
-                        Link
-                      </label>
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                        <input
-                          id="profile-share-url"
-                          readOnly
-                          value={shareUrl}
-                          className={`${fieldInputClass} font-mono text-xs sm:flex-1 sm:text-sm`}
-                        />
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="shrink-0 sm:px-5"
-                          onClick={() => void copyShareLink()}
-                        >
-                          Copy
-                        </Button>
+                    <Link
+                      key={o.id}
+                      href={`/organizations/${o.id}`}
+                      className="flex items-center gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3 transition-colors hover:border-[var(--ui-brand-green)]/50"
+                    >
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--ui-brand-brown)]/10">
+                        <Icon name="peopleGroup" size="s" className="text-[var(--ui-brand-brown)]" />
                       </div>
-                      {copyHint ? (
-                        <p className="mt-2 text-xs text-[var(--ui-brand-green)]" role="status">
-                          {copyHint}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium text-[var(--ui-text)]">{o.name}</p>
+                        <span className={orgStatusChipClass(o.status)}>{o.status}</span>
+                      </div>
+                    </Link>
+                  ))}
                 </div>
               </div>
             ) : null}
 
+            {/* Donations Section */}
+            {viewMode && activity.deposits.length > 0 ? (
+              <div className="mt-8 border-t border-[var(--ui-border)] pt-8">
+                <TextCaption className="mb-3 block uppercase tracking-wider text-[var(--ui-muted)]">Donations & Support</TextCaption>
+                <div className="space-y-2">
+                  {activity.deposits.slice(0, 5).map((d) => (
+                    <Link
+                      key={d.tx_hash}
+                      href={`/campaigns/${d.campaign_id}`}
+                      className="flex items-center justify-between rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3 transition-colors hover:border-[var(--ui-brand-green)]/50"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium text-[var(--ui-text)]">
+                          {d.campaign_title?.trim() || `Campaign #${d.campaign_id}`}
+                        </p>
+                        <p className="text-xs text-[var(--ui-muted)]">
+                          {new Date(d.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}
+                        </p>
+                      </div>
+                      <span className="ml-2 shrink-0 font-semibold text-[var(--ui-brand-green)]">
+                        +{formatDepositAmount(d.amount)}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+                {activity.deposits.length > 5 && (
+                  <p className="mt-3 text-center text-sm text-[var(--ui-muted)]">
+                    +{activity.deposits.length - 5} more donations
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            {/* Empty State */}
             {viewMode && !bio.trim() && !headline.trim() && !name.trim() && !initialProfile ? (
               <div className="mt-8 border-t border-[var(--ui-border)] pt-8">
-                <TextBody className="text-[var(--ui-muted)]">
-                  This wallet has not set up a public profile yet.
-                </TextBody>
+                <div className="text-center">
+                  <Icon name="account" size="l" className="mx-auto mb-3 text-[var(--ui-muted)]" />
+                  <TextBody className="text-[var(--ui-muted)]">This wallet hasn't set up a profile yet.</TextBody>
+                </div>
               </div>
             ) : null}
           </div>
@@ -838,6 +771,68 @@ export function ProfilePageClient({
           dialogAriaLabel="Direct messages"
         />
       ) : null}
+
+      {/* Share Modal */}
+      {shareOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          onClick={() => setShareOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Share profile"
+        >
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-3xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-[var(--ui-border)] px-6 py-4">
+              <TextCaption className="uppercase tracking-wider text-[var(--ui-muted)]">Share Profile</TextCaption>
+              <button
+                onClick={() => setShareOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--ui-muted)] transition-colors hover:bg-black/5 hover:text-[var(--ui-text)]"
+                aria-label="Close"
+              >
+                <Icon name="close" size="s" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="px-6 py-8 text-center">
+              {/* QR Code */}
+              <div className="mx-auto mb-6 inline-block rounded-2xl border border-[var(--ui-border)] bg-white p-4 dark:bg-[var(--ui-surface)]">
+                <QRCodeSVG value={shareUrl} size={160} level="M" includeMargin={false} />
+              </div>
+
+              {/* Description */}
+              <p className="mb-6 text-sm text-[var(--ui-muted)]">
+                {profileSlug.trim()
+                  ? "Scan to visit this profile directly."
+                  : "Scan to visit this wallet's profile."}
+              </p>
+
+              {/* Link Input */}
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={shareUrl}
+                  className={`${fieldInputClass} flex-1 text-xs`}
+                />
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    void copyShareLink();
+                    window.setTimeout(() => setShareOpen(false), 800);
+                  }}
+                  className="shrink-0"
+                >
+                  {copyHint ? "Copied!" : "Copy"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

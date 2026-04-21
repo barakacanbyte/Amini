@@ -462,7 +462,7 @@ export function ActivityClient() {
   );
 
   return (
-    <main className="app-page px-4 py-8 md:px-8">
+    <main className="app-page px-3 py-6 sm:px-4 sm:py-8 md:px-8">
       <div className="mx-auto max-w-2xl">
         <div className="mb-6 flex items-center justify-between">
           <TextTitle2 as="h1" className="brand-brown">

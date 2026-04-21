@@ -23,7 +23,7 @@ export function CampaignsSectionDivider({ label = "Campaigns" }: { label?: strin
 export function CampaignsHero() {
   return (
     <section
-      className="relative mb-8 overflow-hidden rounded-[2rem] border border-[var(--ui-border)] px-6 py-12 shadow-[var(--ui-shadow-md)] sm:px-10 sm:py-14 md:px-14 md:py-16"
+      className="relative mb-6 overflow-hidden rounded-[1.5rem] border border-[var(--ui-border)] px-5 py-10 shadow-[var(--ui-shadow-md)] sm:mb-8 sm:rounded-[2rem] sm:px-10 sm:py-14 md:px-14 md:py-16"
       style={{
         background:
           "linear-gradient(135deg, color-mix(in oklab, var(--ui-brand-green) 12%, var(--ui-surface-elev)) 0%, var(--ui-surface-elev) 45%, color-mix(in oklab, #84cc16 18%, var(--ui-surface-elev)) 100%)",
@@ -50,7 +50,7 @@ export function CampaignsHero() {
         <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[var(--ui-brand-green-strong)] sm:text-xs">
           On-chain campaigns
         </p>
-        <h1 className="mt-3 text-4xl font-black leading-[1.05] tracking-tight text-emerald-950 dark:text-emerald-50 md:text-5xl lg:text-[3.25rem]">
+        <h1 className="mt-3 text-3xl font-black leading-[1.05] tracking-tight text-emerald-950 dark:text-emerald-50 sm:text-4xl md:text-5xl lg:text-[3.25rem]">
           Fund and follow
         </h1>
         <p className="mt-5 max-w-xl text-[11px] font-semibold uppercase leading-relaxed tracking-wider text-[var(--ui-muted)] sm:text-xs sm:leading-relaxed">

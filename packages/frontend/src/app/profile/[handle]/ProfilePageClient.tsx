@@ -434,28 +434,30 @@ export function ProfilePageClient({
             <div className="flex items-center gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-1">
               <Button
                 type="button"
-                variant={mode === "preview" ? "primary" : "secondary"}
-                className="!min-h-9"
-                onClick={() => {
-                  setMode("preview");
-                  resetFromInitial();
-                  setMessage(null);
-                  setAvatarError(null);
-                }}
-              >
-                Preview
-              </Button>
-              <Button
-                type="button"
                 variant={mode === "edit" ? "primary" : "secondary"}
                 className="!min-h-9"
                 onClick={() => {
+                  if (mode === "edit") {
+                    resetFromInitial();
+                    setMode("preview");
+                    setMessage(null);
+                    setAvatarError(null);
+                    return;
+                  }
+
                   setMode("edit");
                   setMessage(null);
                   setAvatarError(null);
                 }}
               >
-                Edit
+                {mode === "edit" ? (
+                  "Cancel"
+                ) : (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Icon name="pencil" size="s" />
+                    Edit
+                  </span>
+                )}
               </Button>
             </div>
           ) : null}
@@ -517,7 +519,7 @@ export function ProfilePageClient({
                   </div>
                 ) : (
                   <TextCaption className="text-[var(--ui-muted)]">
-                    Edit fields below, then save. Preview shows your public page.
+                    Edit fields below, then save.
                   </TextCaption>
                 )}
               </div>

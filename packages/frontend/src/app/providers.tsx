@@ -18,9 +18,35 @@ import {
   AminiSigningProviderCdp,
   AminiSigningProviderWagmi,
 } from "@/context/AminiSigningContext";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
-const queryClient = new QueryClient();
+// Create QueryClient once outside component to ensure stable cache across renders
+function makeQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        // Data is considered fresh for 5 minutes to prevent excessive reloading
+        staleTime: 5 * 60 * 1000,
+        // Keep previous data while fetching new data to avoid loading states
+        placeholderData: (prev: unknown) => prev,
+      },
+    },
+  });
+}
+
+let browserQueryClient: QueryClient | undefined = undefined;
+
+function getQueryClient() {
+  if (typeof window === "undefined") {
+    // Server: always create new client
+    return makeQueryClient();
+  }
+  // Browser: reuse existing client or create new one
+  if (!browserQueryClient) {
+    browserQueryClient = makeQueryClient();
+  }
+  return browserQueryClient;
+}
 
 /** Base mainnet RPC when the user switches networks in the wallet */
 const baseRpc =
@@ -99,6 +125,9 @@ export function Providers({
   /** From `cookieToInitialState` in `layout.tsx` — avoids SSR `localStorage` for Wagmi. */
   initialState?: State;
 }) {
+  // Use useState to ensure QueryClient is created only once on mount
+  const [queryClient] = useState(() => getQueryClient());
+
   return (
     <AppThemeProvider>
       <MediaQueryProvider>

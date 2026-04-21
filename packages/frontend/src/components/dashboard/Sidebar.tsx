@@ -49,19 +49,19 @@ export function Sidebar({ role, onRoleChange }: SidebarProps) {
 
   const navItems = {
     donor: [
-      { name: "General", href: "/dashboard/donor", icon: "dashboard" as const },
+      { name: "My Dashboard", href: "/dashboard/donor", icon: "dashboard" as const },
       { name: "My Donations", href: "/dashboard/donor/donations", icon: "activity" as const },
       { name: "Tax Receipts", href: "/dashboard/donor/receipts", icon: "document" as const },
       { name: "Settings", href: "/dashboard/donor/settings", icon: "settings" as const },
     ],
     organization: [
-      { name: "General", href: "/dashboard/organization", icon: "dashboard" as const },
+      { name: "My Dashboard", href: "/dashboard/organization", icon: "dashboard" as const },
       { name: "My Campaigns", href: "/dashboard/organization/campaigns", icon: "megaphone" as const },
       { name: "Disbursements", href: "/dashboard/organization/disbursements", icon: "activity" as const },
       { name: "Settings", href: "/dashboard/organization/settings", icon: "settings" as const },
     ],
     admin: [
-      { name: "Overview", href: "/dashboard/admin", icon: "dashboard" as const },
+      { name: "My Dashboard", href: "/dashboard/admin", icon: "dashboard" as const },
       { name: "All Campaigns", href: "/dashboard/admin/campaigns", icon: "megaphone" as const },
       { name: "Users", href: "/dashboard/admin/users", icon: "peopleGroup" as const },
       { name: "Verification", href: "/dashboard/admin/verification", icon: "securityShield" as const },
@@ -72,7 +72,7 @@ export function Sidebar({ role, onRoleChange }: SidebarProps) {
   const currentNav = navItems[role];
 
   return (
-    <aside className="flex h-screen w-64 flex-col border-r border-[var(--ui-border)] bg-[var(--ui-surface)]">
+    <aside className="flex min-h-screen w-64 shrink-0 flex-col border-r border-[var(--ui-border)] bg-[var(--ui-surface)]">
       <div className="flex h-16 shrink-0 items-center px-6">
         <Link href="/" className="flex items-center gap-2 focus-brand">
           <Image src="/logo.png" alt="Amini" width={100} height={28} className="h-7 w-auto" />

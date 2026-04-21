@@ -17,12 +17,11 @@ import {
 } from "@coinbase/onchainkit/wallet";
 import { Dropdown, MenuItem } from "@coinbase/cds-web/dropdown";
 import { Icon } from "@coinbase/cds-web/icons";
-import { Bell, MessageCircle } from "lucide-react";
+import { Bell, ChevronDown, MessageCircle } from "lucide-react";
 import { getCdpWalletConfig } from "@/lib/cdpWalletConfig";
 
 const NAV_ITEMS = [
   { href: "/#overview", label: "Overview", match: (path: string) => path === "/" },
-  { href: "/dashboard/donor", label: "Dashboard", match: (path: string) => path.startsWith("/dashboard") },
   { href: "/campaigns", label: "Campaigns", match: (path: string) => path.startsWith("/campaigns") },
   { href: "/activity", label: "Activity feed", match: (path: string) => path === "/activity" },
   { href: "/explorer", label: "Explorer", match: (path: string) => path === "/explorer" },
@@ -56,9 +55,11 @@ function NavLink({
 type OrgRow = { id: string; name: string; status: string };
 
 function ProfileMenu() {
+  const cdpConfigured = Boolean(getCdpWalletConfig());
   const { address, isConnected } = useAminiSigning();
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [publicProfileSlug, setPublicProfileSlug] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!address || !isConnected) {
@@ -82,18 +83,27 @@ function ProfileMenu() {
   useEffect(() => {
     if (!address || !isConnected) {
       setPublicProfileSlug(null);
+      setAvatarUrl(null);
       return;
     }
     let cancelled = false;
     fetch(`/api/profiles/${encodeURIComponent(address.toLowerCase())}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((j: { ok?: boolean; profile?: { profile_slug?: string | null } | null }) => {
+      .then(
+        (j: {
+          ok?: boolean;
+          profile?: { profile_slug?: string | null; avatar_url?: string | null } | null;
+        }) => {
         if (cancelled) return;
         const slug = j?.ok && j.profile?.profile_slug ? String(j.profile.profile_slug).trim() : "";
         setPublicProfileSlug(slug || null);
+        const avatar =
+          j?.ok && j.profile?.avatar_url ? String(j.profile.avatar_url).trim() : "";
+        setAvatarUrl(avatar || null);
       })
       .catch(() => {
         if (!cancelled) setPublicProfileSlug(null);
+        if (!cancelled) setAvatarUrl(null);
       });
     return () => {
       cancelled = true;
@@ -106,8 +116,25 @@ function ProfileMenu() {
 
   return (
     <Dropdown
+      maxHeight={9999}
       content={
         <div className="flex flex-col min-w-[220px] rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] py-2 shadow-xl dark:bg-[var(--ui-surface)]">
+          <div className="amini-header-wallet border-b border-[var(--ui-border)] px-3 pb-3 pt-1">
+            {cdpConfigured ? (
+              <div className="amini-header-cdp-login flex flex-col items-stretch" aria-label="Account">
+                <CdpEmbeddedAuth />
+              </div>
+            ) : (
+              <div className="flex justify-center px-1">
+                <Wallet>
+                  <ConnectWallet disconnectedLabel="Log in" />
+                  <WalletDropdown>
+                    <WalletDropdownDisconnect />
+                  </WalletDropdown>
+                </Wallet>
+              </div>
+            )}
+          </div>
           {address ? (
             <>
               <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
@@ -188,8 +215,36 @@ function ProfileMenu() {
       }
       contentPosition={{ placement: "bottom-end", gap: 8 }}
     >
-      <button className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] transition-colors hover:bg-black/5 focus:outline-none dark:hover:bg-white/5">
-        <Icon name="menu" size="m" className="text-[var(--ui-text)]" />
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-label="Open account and navigation menu"
+        title="Account menu"
+        className="group relative flex h-10 w-10 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] shadow-sm transition-[box-shadow,transform,border-color,background-color] duration-150 hover:border-[color-mix(in_oklab,var(--ui-text)_22%,var(--ui-border))] hover:bg-black/[0.06] hover:shadow-md active:scale-[0.96] dark:hover:bg-white/[0.08] focus-brand"
+      >
+        {avatarUrl ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element -- remote gateway URL (IPFS/Filebase) not reliably supported by next/image without config */}
+            <img
+              src={avatarUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="pointer-events-none h-full w-full object-cover transition-opacity duration-150 group-hover:opacity-90"
+            />
+            <span
+              className="pointer-events-none absolute bottom-0 right-0 flex h-[15px] w-[15px] items-center justify-center rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] text-[var(--ui-muted)] shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]"
+              aria-hidden
+            >
+              <ChevronDown className="h-2.5 w-2.5 shrink-0" strokeWidth={2.5} />
+            </span>
+          </>
+        ) : (
+          <Icon
+            name="menu"
+            size="m"
+            className="text-[var(--ui-text)] transition-transform duration-150 group-hover:scale-105"
+          />
+        )}
       </button>
     </Dropdown>
   );
@@ -197,7 +252,6 @@ function ProfileMenu() {
 
 export function SiteHeader() {
   const pathname = usePathname();
-  const cdpConfigured = Boolean(getCdpWalletConfig());
 
   // Hide SiteHeader on dashboard routes to allow full-height sidebar
   if (pathname?.startsWith("/dashboard")) {
@@ -237,6 +291,7 @@ export function SiteHeader() {
 
           <div className="header-actions amini-header-wallet flex shrink-0 items-center gap-1">
             <Dropdown
+              maxHeight={9999}
               content={
                 <div className="flex min-w-[240px] flex-col rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] py-3 shadow-xl dark:bg-[var(--ui-surface)]">
                   <p className="px-4 text-sm text-[var(--ui-muted)]">No notifications yet.</p>
@@ -260,22 +315,6 @@ export function SiteHeader() {
               <MessageCircle className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
             </Link>
             <ThemeToggle />
-            {cdpConfigured ? (
-              <div
-                className="amini-header-cdp-login flex shrink-0 items-center"
-                aria-label="Account"
-              >
-                <CdpEmbeddedAuth />
-              </div>
-            ) : (
-              <Wallet>
-                <ConnectWallet disconnectedLabel="Log in" />
-                <WalletDropdown>
-                  <WalletDropdownDisconnect />
-                </WalletDropdown>
-              </Wallet>
-            )}
-
             <Button
               as={Link}
               href="/campaigns/create"
@@ -286,7 +325,8 @@ export function SiteHeader() {
             >
               Start a campaign
             </Button>
-             <ProfileMenu />
+
+            <ProfileMenu />
           </div>
         </div>
       </div>

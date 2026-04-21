@@ -28,9 +28,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex h-screen w-full bg-[var(--ui-bg)] overflow-hidden">
+    <div className="flex min-h-screen w-full bg-[var(--ui-bg)]">
       <Sidebar role={role} onRoleChange={handleRoleChange} />
-      <main className="flex-1 overflow-y-auto">
+      <main className="min-h-screen flex-1 overflow-y-auto">
         <div className="mx-auto max-w-7xl p-6 md:p-8 lg:p-10">
           {children}
         </div>

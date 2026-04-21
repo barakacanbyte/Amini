@@ -21,36 +21,11 @@ interface OrgCampaign {
   goal: string;
 }
 
-// Dummy Data
-const DUMMY_STATS: OrgStats = {
-  totalRaised: "$239.2k",
-  activeCampaigns: 3,
-  pendingMilestones: 2,
+const EMPTY_STATS: OrgStats = {
+  totalRaised: "$0",
+  activeCampaigns: 0,
+  pendingMilestones: 0,
 };
-
-const DUMMY_CAMPAIGNS: OrgCampaign[] = [
-  {
-    id: "1",
-    name: "Great Green Wall: Sector 7",
-    status: "Active",
-    raised: "72.4k",
-    goal: "85.0k"
-  },
-  {
-    id: "2",
-    name: "Java Aquifer Protection",
-    status: "Active",
-    raised: "145.0k",
-    goal: "350.0k"
-  },
-  {
-    id: "3",
-    name: "Andean Resilience",
-    status: "Review Pending",
-    raised: "21.8k",
-    goal: "180.0k"
-  }
-];
 
 type OrgListRow = { id: string; name: string; status: string };
 
@@ -81,31 +56,46 @@ export default function OrganizationDashboard() {
   }, [address, isConnected]);
 
   useEffect(() => {
-    // Simulate fetching data from Supabase/API
-    const fetchOrgData = async () => {
-      try {
-        // const res = await fetch('/api/organization/dashboard');
-        // const data = await res.json();
-        const data: any = null; // Simulating empty response to trigger dummy data
-
-        if (data) {
-          setStats(data.stats);
-          setCampaigns(data.campaigns);
-        } else {
-          setStats(DUMMY_STATS);
-          setCampaigns(DUMMY_CAMPAIGNS);
-        }
-      } catch (error) {
-        console.error("Failed to fetch org data", error);
-        setStats(DUMMY_STATS);
-        setCampaigns(DUMMY_CAMPAIGNS);
-      } finally {
-        setIsLoading(false);
-      }
+    if (!address || !isConnected) {
+      setStats(EMPTY_STATS);
+      setCampaigns([]);
+      setIsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIsLoading(true);
+    fetch(`/api/organization/dashboard?wallet=${encodeURIComponent(address)}`)
+      .then((r) => r.json())
+      .then(
+        (j: {
+          ok?: boolean;
+          stats?: OrgStats;
+          campaigns?: OrgCampaign[];
+          message?: string;
+        }) => {
+          if (cancelled) return;
+          if (j.ok && j.stats && Array.isArray(j.campaigns)) {
+            setStats(j.stats);
+            setCampaigns(j.campaigns);
+          } else {
+            setStats(EMPTY_STATS);
+            setCampaigns([]);
+          }
+        },
+      )
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to fetch org dashboard", error);
+        setStats(EMPTY_STATS);
+        setCampaigns([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
     };
-
-    fetchOrgData();
-  }, []);
+  }, [address, isConnected]);
 
   if (isLoading) {
     return (
@@ -127,27 +117,31 @@ export default function OrganizationDashboard() {
             Manage your active campaigns, track disbursements, and attest to milestones.
           </p>
         </div>
-        <div className="flex flex-col items-stretch gap-2 sm:items-end">
-          <div className="flex flex-wrap justify-end gap-2">
-            {address ? (
-              <Button
-                as={Link}
-                href={`/profile/${address.toLowerCase()}`}
-                variant="secondary"
-                className="inline-flex items-center justify-center gap-2"
-              >
-                <Icon name="account" size="m" />
-                My profile
-              </Button>
-            ) : null}
-          </div>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          {address ? (
+            <Button
+              as={Link}
+              href={`/profile/${address.toLowerCase()}`}
+              variant="secondary"
+              compact
+              font="label1"
+              className="shrink-0 whitespace-nowrap !px-5"
+              startIcon="account"
+              startIconActive
+            >
+              My profile
+            </Button>
+          ) : null}
           <Button
             as={Link}
             href="/campaigns/create"
             variant="primary"
-            className="inline-flex items-center justify-center gap-2"
+            compact
+            font="label1"
+            className="shrink-0 whitespace-nowrap !px-5"
+            startIcon="add"
+            startIconActive
           >
-            <Icon name="add" size="m" />
             Create Campaign
           </Button>
         </div>
@@ -186,7 +180,7 @@ export default function OrganizationDashboard() {
                   <span
                     className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
                       o.status === "approved"
-                        ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-300"
+                        ? "bg-emerald-500/15 text-emerald-950 dark:text-emerald-200"
                         : o.status === "pending"
                           ? "bg-amber-500/15 text-amber-900 dark:text-amber-200"
                           : "bg-[var(--ui-surface-elev)] text-[var(--ui-muted)]"
@@ -222,24 +216,23 @@ export default function OrganizationDashboard() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Total Raised</p>
-          <p className="mt-2 text-3xl font-bold text-[var(--ui-text)]">{stats?.totalRaised}</p>
-          <div className="mt-2 flex items-center gap-1 text-xs font-medium text-[var(--ui-brand-green)]">
-            <Icon name="diagonalUpArrow" size="m" />
-            <span>+12% this month</span>
+          <p className="mt-2 text-3xl font-bold text-[var(--ui-text)]">{stats?.totalRaised ?? "$0"}</p>
+          <div className="mt-2 text-xs font-medium text-[var(--ui-muted)]">
+            Across all campaigns
           </div>
         </div>
         <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Active Campaigns</p>
-          <p className="mt-2 text-3xl font-bold text-[var(--ui-text)]">{stats?.activeCampaigns}</p>
+          <p className="mt-2 text-3xl font-bold text-[var(--ui-text)]">{stats?.activeCampaigns ?? 0}</p>
           <div className="mt-2 text-xs font-medium text-[var(--ui-muted)]">
-            Across 2 regions
+            Currently fundraising
           </div>
         </div>
         <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">Pending Milestones</p>
-          <p className="mt-2 text-3xl font-bold text-[var(--ui-text)]">{stats?.pendingMilestones}</p>
+          <p className="mt-2 text-3xl font-bold text-[var(--ui-text)]">{stats?.pendingMilestones ?? 0}</p>
           <div className="mt-2 text-xs font-medium text-[var(--ui-brand-amber)]">
-            Requires attestation
+            Awaiting review
           </div>
         </div>
       </div>
@@ -247,46 +240,73 @@ export default function OrganizationDashboard() {
       {/* Active Campaigns List */}
       <div className="space-y-4">
         <h2 className="text-lg font-bold text-[var(--ui-text)]">Your Campaigns</h2>
-        <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] overflow-hidden">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-[var(--ui-border)] bg-[var(--ui-surface-elev)]">
-              <tr>
-                <th className="px-4 py-3 font-semibold text-[var(--ui-muted)]">Campaign Name</th>
-                <th className="px-4 py-3 font-semibold text-[var(--ui-muted)]">Status</th>
-                <th className="px-4 py-3 font-semibold text-[var(--ui-muted)] text-right">Raised</th>
-                <th className="px-4 py-3 font-semibold text-[var(--ui-muted)] text-right">Goal</th>
-                <th className="px-4 py-3 font-semibold text-[var(--ui-muted)] text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--ui-border)]">
-              {campaigns.map((campaign) => (
-                <tr key={campaign.id} className="hover:bg-[var(--ui-surface-elev)] transition-colors">
-                  <td className="px-4 py-4 font-medium text-[var(--ui-text)]">{campaign.name}</td>
-                  <td className="px-4 py-4">
-                    <span className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                      campaign.status === 'Active' 
-                        ? 'bg-[var(--ui-brand-green)]/10 text-[var(--ui-brand-green)]'
-                        : 'bg-[var(--ui-brand-amber)]/10 text-[var(--ui-brand-amber)]'
-                    }`}>
-                      {campaign.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 text-right font-mono text-[var(--ui-text)]">{campaign.raised}</td>
-                  <td className="px-4 py-4 text-right font-mono text-[var(--ui-muted)]">{campaign.goal}</td>
-                  <td className="px-4 py-4 text-center">
-                    <button className={`font-semibold text-xs uppercase tracking-wider ${
-                      campaign.status === 'Active'
-                        ? 'text-[var(--ui-brand-green)] hover:text-[var(--ui-brand-green-strong)]'
-                        : 'text-[var(--ui-brand-amber)] hover:text-[var(--ui-brand-amber)]'
-                    }`}>
-                      {campaign.status === 'Active' ? 'Manage' : 'Attest'}
-                    </button>
-                  </td>
+        {campaigns.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface-elev)]/60 p-6 text-center">
+            <p className="text-sm text-[var(--ui-muted)]">
+              You have not created any campaigns yet.
+            </p>
+            <Button
+              as={Link}
+              href="/campaigns/create"
+              variant="primary"
+              compact
+              font="label1"
+              className="mt-4 shrink-0 whitespace-nowrap"
+              startIcon="add"
+              startIconActive
+            >
+              Create your first campaign
+            </Button>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] overflow-hidden">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-[var(--ui-border)] bg-[var(--ui-surface-elev)]">
+                <tr>
+                  <th className="px-4 py-3 font-semibold text-[var(--ui-muted)]">Campaign Name</th>
+                  <th className="px-4 py-3 font-semibold text-[var(--ui-muted)]">Status</th>
+                  <th className="px-4 py-3 font-semibold text-[var(--ui-muted)] text-right">Raised</th>
+                  <th className="px-4 py-3 font-semibold text-[var(--ui-muted)] text-right">Goal</th>
+                  <th className="px-4 py-3 font-semibold text-[var(--ui-muted)] text-center">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-[var(--ui-border)]">
+                {campaigns.map((campaign) => {
+                  const statusClass =
+                    campaign.status === "Active"
+                      ? "bg-[var(--ui-brand-green)]/10 text-[var(--ui-brand-green)]"
+                      : campaign.status === "Review Pending"
+                        ? "bg-[var(--ui-brand-amber)]/10 text-[var(--ui-brand-amber)]"
+                        : "bg-[var(--ui-surface-elev)] text-[var(--ui-muted)]";
+                  return (
+                    <tr key={campaign.id} className="hover:bg-[var(--ui-surface-elev)] transition-colors">
+                      <td className="px-4 py-4 font-medium text-[var(--ui-text)]">{campaign.name}</td>
+                      <td className="px-4 py-4">
+                        <span className={`inline-flex items-center rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${statusClass}`}>
+                          {campaign.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4 text-right font-mono text-[var(--ui-text)]">{campaign.raised}</td>
+                      <td className="px-4 py-4 text-right font-mono text-[var(--ui-muted)]">{campaign.goal}</td>
+                      <td className="px-4 py-4 text-center">
+                        <Link
+                          href={`/campaigns/${campaign.id}`}
+                          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wider transition-colors ${
+                            campaign.status === "Review Pending"
+                              ? "bg-[var(--ui-brand-amber)]/10 text-[var(--ui-brand-amber)] hover:bg-[var(--ui-brand-amber)]/20"
+                              : "bg-[var(--ui-brand-green)]/10 text-[var(--ui-brand-green)] hover:bg-[var(--ui-brand-green)]/20"
+                          }`}
+                        >
+                          {campaign.status === "Review Pending" ? "Attest" : "Manage"}
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

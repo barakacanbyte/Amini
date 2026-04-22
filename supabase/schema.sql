@@ -17,6 +17,9 @@ CREATE TABLE public.profiles (
   bio text,
   location text,
   profile_slug text,
+  x_url text,
+  linkedin_url text,
+  instagram_url text,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );

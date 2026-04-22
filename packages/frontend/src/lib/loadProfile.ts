@@ -15,6 +15,9 @@ export type LoadedProfile = {
   bio: string | null;
   location: string | null;
   profile_slug: string | null;
+  x_url: string | null;
+  linkedin_url: string | null;
+  instagram_url: string | null;
   created_at: string | null;
   updated_at: string | null;
 } | null;
@@ -22,7 +25,7 @@ export type LoadedProfile = {
 type ProfileRow = Exclude<LoadedProfile, null>;
 
 const SELECT =
-  "wallet,roles,name,email,avatar_url,headline,bio,location,profile_slug,created_at,updated_at";
+  "wallet,roles,name,email,avatar_url,headline,bio,location,profile_slug,x_url,linkedin_url,instagram_url,created_at,updated_at";
 
 function mapRow(row: ProfileRow): LoadedProfile {
   return {
@@ -85,6 +88,9 @@ export function defaultProfileForWallet(wallet: string): NonNullable<LoadedProfi
     bio: null,
     location: null,
     profile_slug: null,
+    x_url: null,
+    linkedin_url: null,
+    instagram_url: null,
     created_at: null,
     updated_at: null,
   };

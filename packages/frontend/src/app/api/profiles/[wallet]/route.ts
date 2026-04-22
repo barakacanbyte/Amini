@@ -9,7 +9,7 @@ import { getSupabaseServiceConfig, supabaseServiceHeaders } from "@/lib/supabase
 import type { RequestIdentityFields } from "@/lib/parseRequestIdentity";
 
 const PROFILE_SELECT =
-  "wallet,roles,name,email,avatar_url,headline,bio,location,profile_slug,created_at,updated_at";
+  "wallet,roles,name,email,avatar_url,headline,bio,location,profile_slug,x_url,linkedin_url,instagram_url,created_at,updated_at";
 
 export type PublicProfile = {
   wallet: string;
@@ -23,6 +23,9 @@ export type PublicProfile = {
   location: string | null;
   /** Public path segment: /profile/{profile_slug} */
   profile_slug: string | null;
+  x_url: string | null;
+  linkedin_url: string | null;
+  instagram_url: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -131,6 +134,9 @@ export async function PATCH(
       const ps = ((form.get("profile_slug") as string) ?? "").trim().toLowerCase();
       updates.profile_slug = ps === "" ? null : ps;
     }
+    if (form.has("x_url")) updates.x_url = ((form.get("x_url") as string) ?? "").trim() || null;
+    if (form.has("linkedin_url")) updates.linkedin_url = ((form.get("linkedin_url") as string) ?? "").trim() || null;
+    if (form.has("instagram_url")) updates.instagram_url = ((form.get("instagram_url") as string) ?? "").trim() || null;
 
     const avatarFile = form.get("avatar") as File | null;
     if (avatarFile && avatarFile.size > 0) {
@@ -189,6 +195,9 @@ export async function PATCH(
     pick("bio");
     pick("location");
     pick("avatar_url");
+    pick("x_url");
+    pick("linkedin_url");
+    pick("instagram_url");
     if ("profile_slug" in body) {
       const v = body.profile_slug;
       if (v == null || (typeof v === "string" && v.trim() === "")) {

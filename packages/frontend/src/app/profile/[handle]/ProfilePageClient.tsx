@@ -121,6 +121,9 @@ export function ProfilePageClient({
   const [location, setLocation] = useState(initialProfile?.location ?? "");
   const [avatarUrl, setAvatarUrl] = useState((initialProfile?.avatar_url ?? "").trim());
   const [profileSlug, setProfileSlug] = useState(initialProfile?.profile_slug ?? "");
+  const [xUrl, setXUrl] = useState(initialProfile?.x_url ?? "");
+  const [linkedinUrl, setLinkedinUrl] = useState(initialProfile?.linkedin_url ?? "");
+  const [instagramUrl, setInstagramUrl] = useState(initialProfile?.instagram_url ?? "");
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [origin, setOrigin] = useState("");
@@ -264,6 +267,9 @@ export function ProfilePageClient({
     setLocation(initialProfile?.location ?? "");
     setAvatarUrl((initialProfile?.avatar_url ?? "").trim());
     setProfileSlug(initialProfile?.profile_slug ?? "");
+    setXUrl(initialProfile?.x_url ?? "");
+    setLinkedinUrl(initialProfile?.linkedin_url ?? "");
+    setInstagramUrl(initialProfile?.instagram_url ?? "");
     setAvatarFile(null);
     setAvatarPreview(null);
     setAvatarError(null);
@@ -308,6 +314,9 @@ export function ProfilePageClient({
     location?: string | null;
     avatar_url?: string | null;
     profile_slug?: string | null;
+    x_url?: string | null;
+    linkedin_url?: string | null;
+    instagram_url?: string | null;
   };
 
   function applyServerProfile(p: ApiProfileRow) {
@@ -318,6 +327,9 @@ export function ProfilePageClient({
     setLocation(p.location ?? "");
     setAvatarUrl((p.avatar_url ?? "").trim());
     setProfileSlug(p.profile_slug ?? "");
+    setXUrl(p.x_url ?? "");
+    setLinkedinUrl(p.linkedin_url ?? "");
+    setInstagramUrl(p.instagram_url ?? "");
   }
 
   const save = async () => {
@@ -351,6 +363,9 @@ export function ProfilePageClient({
         fd.append("bio", bio);
         fd.append("location", location);
         fd.append("profile_slug", profileSlug.trim());
+        fd.append("x_url", xUrl.trim());
+        fd.append("linkedin_url", linkedinUrl.trim());
+        fd.append("instagram_url", instagramUrl.trim());
         fd.append("avatar", avatarFile);
         fd.append("signature", auth.signature);
         fd.append("signatureTimestamp", auth.signatureTimestamp);
@@ -370,6 +385,9 @@ export function ProfilePageClient({
             bio: bio || null,
             location: location || null,
             profile_slug: profileSlug.trim() || null,
+            x_url: xUrl.trim() || null,
+            linkedin_url: linkedinUrl.trim() || null,
+            instagram_url: instagramUrl.trim() || null,
             signature: auth.signature,
             signatureTimestamp: auth.signatureTimestamp,
             ...(auth.cdpAccessToken ? { cdpAccessToken: auth.cdpAccessToken } : {}),
@@ -413,10 +431,10 @@ export function ProfilePageClient({
   const viewMode = !isOwner || mode === "preview";
 
   return (
-    <main className="app-page pt-12 pb-16 sm:pt-20 sm:pb-24">
+    <main className="app-page pt-6 pb-14 sm:pt-8 sm:pb-16">
       <div className="mx-auto w-full max-w-2xl px-4 sm:px-6">
         {/* Main Profile Card */}
-        <div className="relative mt-6 overflow-hidden rounded-3xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] shadow-lg">
+        <div className="relative mt-3 overflow-hidden rounded-3xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] shadow-lg">
           <SavingOverlayCard
             open={saving}
             title="Saving your profile"
@@ -512,6 +530,45 @@ export function ProfilePageClient({
                     ) : null}
                   </div>
 
+                  {/* Social Icons */}
+                  {(xUrl.trim() || linkedinUrl.trim() || instagramUrl.trim()) ? (
+                    <div className="mt-5 flex items-center justify-center gap-3">
+                      {xUrl.trim() && (
+                        <a
+                          href={xUrl.trim()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--ui-text)] transition-all hover:scale-110 hover:bg-black/5"
+                          aria-label="X (Twitter)"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                        </a>
+                      )}
+                      {linkedinUrl.trim() && (
+                        <a
+                          href={linkedinUrl.trim()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--ui-text)] transition-all hover:scale-110 hover:bg-black/5"
+                          aria-label="LinkedIn"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                        </a>
+                      )}
+                      {instagramUrl.trim() && (
+                        <a
+                          href={instagramUrl.trim()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex h-10 w-10 items-center justify-center rounded-full text-[var(--ui-text)] transition-all hover:scale-110 hover:bg-black/5"
+                          aria-label="Instagram"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
+                        </a>
+                      )}
+                    </div>
+                  ) : null}
+
                   {/* Action Buttons */}
                   {origin && (
                     <div className="mt-6 flex items-center justify-center gap-2">
@@ -532,7 +589,7 @@ export function ProfilePageClient({
                           className="!min-h-9"
                         >
                           <span className="inline-flex items-center gap-1.5">
-                            <Icon name="chat" size="s" />
+                            <Icon name="comment" size="s" />
                             Message
                           </span>
                         </Button>
@@ -569,7 +626,7 @@ export function ProfilePageClient({
                       <label className="relative block h-24 w-24 cursor-pointer overflow-hidden rounded-full border-4 border-[var(--ui-border)] transition-all hover:border-[var(--ui-brand-green)]">
                         <img src={staticResolvedAvatar} alt="" className="h-full w-full object-cover" />
                         <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all hover:bg-black/40 hover:opacity-100">
-                          <Icon name="edit" size="s" className="text-white" />
+                          <Icon name="pencil" size="s" className="text-white" />
                         </span>
                         <input
                           key={avatarFileInputKey}
@@ -648,6 +705,45 @@ export function ProfilePageClient({
                     rows={4}
                     className={`${fieldInputClass} min-h-[100px] resize-y`}
                   />
+                </div>
+
+                {/* Social Links */}
+                <div className="border-t border-[var(--ui-border)] pt-4">
+                  <TextCaption className="mb-3 block text-[var(--ui-muted)]">Social Links</TextCaption>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-white text-xs font-bold">X</span>
+                      <input
+                        type="url"
+                        value={xUrl}
+                        onChange={(e) => setXUrl(e.target.value)}
+                        placeholder="https://x.com/username"
+                        className={fieldInputClass}
+                      />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0A66C2] text-white text-xs font-bold">in</span>
+                      <input
+                        type="url"
+                        value={linkedinUrl}
+                        onChange={(e) => setLinkedinUrl(e.target.value)}
+                        placeholder="https://linkedin.com/in/username"
+                        className={fieldInputClass}
+                      />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600 text-white text-xs font-bold">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
+                      </span>
+                      <input
+                        type="url"
+                        value={instagramUrl}
+                        onChange={(e) => setInstagramUrl(e.target.value)}
+                        placeholder="https://instagram.com/username"
+                        className={fieldInputClass}
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-3 pt-2">

@@ -32,7 +32,8 @@ const navBaseClass =
   "relative rounded-md px-3 py-2 text-[15px] font-medium transition-colors duration-200 focus-brand";
 const navActiveClass =
   "brand-green font-semibold after:absolute after:bottom-1 after:left-3 after:right-3 after:h-0.5 after:rounded-full after:bg-emerald";
-const navIdleClass = "app-muted hover:text-emerald";
+const navIdleClass =
+  "text-[color-mix(in_oklab,var(--ui-text)_80%,transparent)] hover:text-[var(--ui-text)] dark:text-[color-mix(in_oklab,var(--ui-text)_88%,transparent)] dark:hover:text-[var(--ui-text)]";
 
 function NavLink({
   href,

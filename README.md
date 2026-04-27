@@ -6,23 +6,20 @@ Every dollar is traceable. Every milestone is verifiable. Organizations can't ch
 
 **Built on:** Base (Coinbase L2) · Coinbase Developer Platform · OnchainKit · USDC · EAS · XMTP · World ID · Supabase · IPFS (Filebase)
 
-## The Problem
+## Unique Value Proposition
 
-Traditional charitable giving is opaque. Donors send money and hope it reaches the right people. Organizations self-report impact with no independent verification. There's no public, immutable record of how funds were actually used.
+**Amini solves the trust problem in charitable giving.** Traditional donations are opaque — donors send money and hope it reaches the right people. We introduce a **milestone-gated funding model** where money follows proof, not promises:
 
-## How Amini Solves It
+1. **Organizations** define clear milestones with funding targets
+2. **Donors** fund only the current open milestone (future ones are locked)
+3. **Funds** are held in escrow on Base
+4. **Organizations** submit proof of work (photos, documents, IPFS-pinned evidence)
+5. **Admins, volunteers, or other site helpers** verify the work and **EAS attestations** are issued on-chain based on the verified proof
+6. **Next milestone unlocks** — the cycle repeats until campaign completion
 
-Amini introduces a **milestone-gated funding model** where money follows proof, not promises:
+Every fund used by nonprofits is transparent. Every milestone requires proof. Organizations cannot change what they received. Donors see exactly where their money went. Donors can choose to be **anonymous** or **transparent**.
 
-1. **Organizations** create campaigns with defined milestones and funding targets
-2. **Donors** fund the current open milestone with USDC — future milestones are locked until progress is proven
-3. **Organizations** complete the work and submit proof (photos, documents, descriptions) uploaded to IPFS
-4. **Volunteers** verify the work on the ground
-5. **Admin** reviews the evidence, issues an **EAS attestation** on-chain
-6. **Smart contract** validates the attestation and releases funds to the beneficiary
-7. **Next milestone unlocks** — the cycle repeats
-
-All deposits, releases, and attestations are permanently recorded on Base. Donor lists are public (or anonymous by choice). Impact posts are pinned to IPFS.
+> **Roadmap note:** A native **Amini token** will be issued in later iterations to power incentives for donors, volunteer verifiers, and reputation-weighted governance.
 
 ## Key Features
 
@@ -49,6 +46,7 @@ All deposits, releases, and attestations are permanently recorded on Base. Donor
 
 ### Campaign Pages
 - Full campaign detail with **hero image, description, tags, region, cause, deadline**
+- Built with **Coinbase Design System (CDS)** components for consistent, accessible UI
 - **Milestone cards** showing open/locked/released state, progress bars, donor pills, proof status, and EAS badges
 - **Impact feed** — IPFS-pinned updates with optional file attachments
 - **Comments** — wallet-verified, threaded discussion
@@ -124,20 +122,59 @@ Beneficiary Wallet
 
 ## Repo Structure
 
+Amini is a **Bun workspace monorepo**. The main application code lives in `packages/` — this is where 95% of development happens.
+
 ```
-packages/
-  contracts/     Foundry — CampaignRegistry + MilestoneEscrow (UUPS, EAS-gated)
-  shared/        TypeScript types, ABIs, chain constants
-  eas-schemas/   EAS encode/decode helpers + attestation creation
-  frontend/      Next.js 16 app (App Router, wagmi, OnchainKit, CDP)
-apps/
-  indexer/       Node.js event indexer (Base -> Supabase)
-supabase/
-  schema.sql     Reference schema snapshot
-  migrations/    24 ordered SQL migrations
-docs/            Architecture, deployments, constraints, demo, branding
-scripts/         Schema dump, ABI export, drift check
+Amini/
+├── packages/                    Main application code (Bun workspaces)
+│   ├── contracts/               Foundry smart contracts
+│   │   ├── src/                 CampaignRegistry.sol, MilestoneEscrow.sol (UUPS, EAS-gated)
+│   │   ├── script/              Deploy.s.sol, Upgrade.s.sol
+│   │   ├── test/                Forge unit + integration tests
+│   │   ├── deployments/         Per-network proxy + implementation addresses
+│   │   └── foundry.toml
+│   │
+│   ├── frontend/                Next.js 16 app (App Router, React 19)
+│   │   └── src/
+│   │       ├── app/             Routes + API handlers (/campaigns, /dashboard, /api/*)
+│   │       ├── components/      Reusable UI built on Coinbase Design System (CDS)
+│   │       ├── context/         React contexts (auth, wallet, theme)
+│   │       ├── hooks/           Custom hooks (useAdminAuth, etc.)
+│   │       ├── lib/             Client SDKs — Supabase, CDP, wagmi, IPFS, contracts
+│   │       └── theme/           aminiTheme + CDS theme overrides
+│   │
+│   ├── shared/                  Cross-package TypeScript
+│   │   └── src/
+│   │       ├── abi/             Exported contract ABIs
+│   │       ├── chain.ts         Base / Base Sepolia chain constants
+│   │       ├── contracts.ts     Contract address resolution per chain
+│   │       └── types.ts         Shared domain types
+│   │
+│   └── eas-schemas/             EAS schema definitions + encode/decode helpers
+│       ├── schemas/             Registered schema definitions
+│       └── src/                 Attestation creation utilities
+│
+├── apps/
+│   └── indexer/                 Node.js event indexer (Base → Supabase)
+│
+├── supabase/
+│   ├── schema.sql               Reference schema snapshot
+│   └── migrations/              Ordered SQL migrations
+│
+├── .agents/
+│   └── skills/                  Agent-readable architecture & domain docs
+│
+├── scripts/                     Schema dump, ABI export, drift check
+└── .github/workflows/           CI/CD (lint, build, forge test, Slither, preview deploy)
 ```
+
+**Key entry points:**
+
+- Smart contract logic: `packages/contracts/src/MilestoneEscrow.sol`
+- Funding + milestone UI: `packages/frontend/src/app/campaigns/[id]/`
+- Admin review queue: `packages/frontend/src/app/dashboard/admin/`
+- CDS component usage: `packages/frontend/src/components/`
+- On-chain event mirroring: `apps/indexer/src/`
 
 ## Tech Stack
 
@@ -165,7 +202,7 @@ scripts/         Schema dump, ABI export, drift check
 
 EAS Schema UID: `0x18e9a692ecf6adbe3c27beadcaef53e888bbca8e38b59f11655fc73494a248f9`
 
-See [`docs/CONTRACT_DEPLOYMENTS.md`](./docs/CONTRACT_DEPLOYMENTS.md) for implementation addresses and upgrade history.
+See [`.agents/skills/contracts.md`](./.agents/skills/contracts.md) for implementation addresses and upgrade history.
 
 ## Getting Started
 
@@ -204,7 +241,7 @@ Copy `.env.example` to `.env` and fill in:
 
 See [`.env.example`](./.env.example) for the full list with comments.
 
-CDP embedded wallet setup: [`docs/CDP_EMBEDDED_WALLET.md`](./docs/CDP_EMBEDDED_WALLET.md)
+CDP embedded wallet setup: [`.agents/skills/auth-wallet.md`](./.agents/skills/auth-wallet.md)
 
 ### Apply Database Migrations
 
@@ -308,7 +345,7 @@ bun test:contracts
 
 ## Contract Architecture
 
-See [`docs/CONTRACT_ARCHITECTURE.md`](./docs/CONTRACT_ARCHITECTURE.md) for a full reviewer-oriented explanation covering:
+See [`.agents/skills/contracts.md`](./.agents/skills/contracts.md) for a full reviewer-oriented explanation covering:
 
 - Why there are two contracts and how they interact
 - Milestone-gated funding logic (`deposit` gate: `milestoneIndex <= releasedCount`)
@@ -330,15 +367,15 @@ All workflows use **Bun** (matching the repo's package manager) and `oven-sh/set
 
 ## Documentation
 
+Domain knowledge lives in [`.agents/skills/`](./.agents/skills/) — agent-readable reference files covering each subsystem.
+
 | Document | Description |
 |----------|-------------|
-| [`docs/CONTRACT_ARCHITECTURE.md`](./docs/CONTRACT_ARCHITECTURE.md) | Full contract logic explanation for reviewers |
-| [`docs/CONTRACT_DEPLOYMENTS.md`](./docs/CONTRACT_DEPLOYMENTS.md) | Proxy/implementation addresses, upgrade commands |
-| [`docs/CDP_EMBEDDED_WALLET.md`](./docs/CDP_EMBEDDED_WALLET.md) | Coinbase Developer Platform wallet setup |
-| [`docs/ARCHITECTURE_CONSTRAINTS.md`](./docs/ARCHITECTURE_CONSTRAINTS.md) | Current trade-offs and trust assumptions |
-| [`docs/ADMIN_DASHBOARD.md`](./docs/ADMIN_DASHBOARD.md) | Admin workflows and routes |
-| [`docs/UI_CDS_BRANDING.md`](./docs/UI_CDS_BRANDING.md) | Design system and CDS usage |
-| [`docs/DEMO_RUNBOOK.md`](./docs/DEMO_RUNBOOK.md) | Step-by-step demo script |
+| [`.agents/skills/contracts.md`](./.agents/skills/contracts.md) | Contract architecture, deployments, upgrade commands |
+| [`.agents/skills/admin-dashboard.md`](./.agents/skills/admin-dashboard.md) | Admin workflows, API endpoints, auth |
+| [`.agents/skills/auth-wallet.md`](./.agents/skills/auth-wallet.md) | CDP embedded wallet + wagmi integration |
+| [`.agents/skills/ui-design.md`](./.agents/skills/ui-design.md) | Coinbase Design System (CDS) usage + Amini branding |
+| [`.agents/skills/architecture.md`](./.agents/skills/architecture.md) | Constraints, trust assumptions, tech stack |
 | [`supabase/README.md`](./supabase/README.md) | Database migration guide |
 
 ## License

@@ -9,6 +9,7 @@ import { TextTitle3 } from "@coinbase/cds-web/typography/TextTitle3";
 import { TextBody } from "@coinbase/cds-web/typography/TextBody";
 import { TextCaption } from "@coinbase/cds-web/typography/TextCaption";
 import { TextLabel2 } from "@coinbase/cds-web/typography/TextLabel2";
+import { RequireAuthButtonLink } from "@/components/RequireAuthButtonLink";
 
 const stats = [
   { value: "200K USD", label: "Funds raised" },
@@ -119,14 +120,13 @@ export default function HomePage() {
                 Amini is a transparent fund disbursement protocol. Every contribution streamed on-chain, every milestone attested on EAS.
               </TextBody>
               <div className="mt-6 hidden flex-wrap items-center justify-center gap-3 sm:mt-7 lg:mt-8 lg:flex lg:justify-start">
-                <Button
-                  as={Link}
+                <RequireAuthButtonLink
                   href="/campaigns/create"
                   variant="primary"
                   className="!px-6 !min-w-[10.5rem]"
                 >
                   Start Campaign
-                </Button>
+                </RequireAuthButtonLink>
                 <Button
                   as={Link}
                   href="/campaigns"
@@ -172,14 +172,13 @@ export default function HomePage() {
 
             {/* Mobile CTAs (below image) */}
             <div className="mt-2 flex flex-wrap items-center justify-center gap-3 lg:hidden">
-              <Button
-                as={Link}
+              <RequireAuthButtonLink
                 href="/campaigns/create"
                 variant="primary"
                 className="!px-6 !min-w-[10.5rem]"
               >
                 Start Campaign
-              </Button>
+              </RequireAuthButtonLink>
               <Button
                 as={Link}
                 href="/campaigns"
@@ -413,14 +412,13 @@ export default function HomePage() {
               <span className="brand-green">REAL IMPACT</span>
             </TextTitle1>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-              <Button
-                as={Link}
+              <RequireAuthButtonLink
                 href="/campaigns/create"
                 variant="primary"
                 className="!px-6 !min-w-[10.5rem]"
               >
                 Create Campaign
-              </Button>
+              </RequireAuthButtonLink>
               <Button
                 as={Link}
                 href="/campaigns"

@@ -1,8 +1,0 @@
--- This file has moved.
---
--- Canonical schema and migrations live under:
---   supabase/schema.sql          — reference snapshot (documentation)
---   supabase/migrations/         — ordered migrations
---   supabase/README.md           — how to apply and sync
---
--- Do not edit this stub; update supabase/ instead.

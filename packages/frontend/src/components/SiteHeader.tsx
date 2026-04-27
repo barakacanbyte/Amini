@@ -21,6 +21,7 @@ import { Icon } from "@coinbase/cds-web/icons";
 import { Activity, Bell, MessageCircle } from "lucide-react";
 import { getCdpWalletConfig } from "@/lib/cdpWalletConfig";
 import { cn } from "@/lib/cn";
+import { RequireAuthButtonLink } from "@/components/RequireAuthButtonLink";
 
 const NAV_ITEMS = [
   { href: "/#overview", label: "Overview", match: (path: string) => path === "/" },
@@ -137,18 +138,60 @@ function ProfileMenu() {
 
   const displayName = profileName || (address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Account");
   const displayEmail = address || "Connect wallet";
+  const displayEmailCompact = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Connect wallet";
+  const menuItemClass =
+    "flex items-center gap-3 px-3 py-1.5 text-[13px] font-medium rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5";
+  const sectionLabelClass =
+    "px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--ui-muted)]";
 
   return (
     <div className="group relative">
       <Dropdown
-        maxHeight={9999}
+        maxHeight={compactNav ? 520 : 9999}
         content={
-          <div className="flex flex-col min-w-[240px] max-w-[calc(100vw-2rem)] rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-2 shadow-xl dark:bg-[var(--ui-surface)]">
+          <div className="flex max-h-[70vh] min-w-[240px] max-w-[calc(100vw-2rem)] flex-col overflow-auto rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-2 shadow-xl dark:bg-[var(--ui-surface)]">
             {compactNav ? (
               <>
-                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
-                  Browse
-                </div>
+                {address ? (
+                  <MenuItem
+                    as={Link}
+                    href={profileHref}
+                    value="profile"
+                    className="mb-1 flex items-center gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 transition-colors hover:bg-black/5 dark:bg-[var(--ui-surface)] dark:hover:bg-white/5"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--ui-brand-green)]/10">
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt=""
+                          referrerPolicy="no-referrer"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <Icon name="account" size="m" className="text-[var(--ui-brand-green)]" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[12px] font-semibold leading-tight text-[var(--ui-text)]">
+                        {displayName}
+                      </div>
+                      <div className="mt-0.5 truncate text-[11px] leading-tight text-[var(--ui-muted)]">
+                        {displayEmailCompact}
+                      </div>
+                    </div>
+                  </MenuItem>
+                ) : (
+                  <div className="mb-1 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 dark:bg-[var(--ui-surface)]">
+                    <div className="text-[12px] font-semibold leading-tight text-[var(--ui-text)]">
+                      {displayName}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] leading-tight text-[var(--ui-muted)]">
+                      {displayEmailCompact}
+                    </div>
+                  </div>
+                )}
+
+                <div className={sectionLabelClass}>Browse</div>
                 {NAV_ITEMS.filter((item) => item.href !== "/activity").map((item) => {
                   const isActive = item.match(pathname);
                   return (
@@ -157,79 +200,57 @@ function ProfileMenu() {
                       as={Link}
                       href={item.href}
                       value={`nav-${item.href}`}
-                      className={`flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${
-                        isActive ? "brand-green font-semibold bg-[var(--ui-brand-green)]/10" : ""
-                      }`}
+                      className={cn(
+                        menuItemClass,
+                        isActive && "brand-green font-semibold bg-[var(--ui-brand-green)]/10",
+                      )}
                     >
                       {item.label}
                     </MenuItem>
                   );
                 })}
-                <div className="flex items-center justify-between gap-3 px-3 py-2">
-                  <span className="text-sm text-[var(--ui-muted)]">Theme</span>
-                  <ThemeToggle />
-                </div>
                 <div className="my-2 h-px w-full bg-[var(--ui-border)]" />
               </>
             ) : null}
             
             {/* Wallet / CDP: on sm+ the trigger already shows the user label — hide duplicate CDP row when signed in */}
-            <div
-              className={cn(
-                "amini-header-wallet border-b border-[var(--ui-border)] px-2 pb-3 pt-1",
-                cdpConfigured && address && "sm:hidden",
-              )}
-            >
-              {cdpConfigured ? (
-                <div className="amini-header-cdp-login flex flex-col items-stretch" aria-label="Account">
-                  <CdpEmbeddedAuth />
-                </div>
-              ) : (
-                <div className="flex justify-center px-1">
-                  <Wallet>
-                    <ConnectWallet disconnectedLabel="Log in" />
-                    <WalletDropdown>
-                      <WalletDropdownDisconnect />
-                    </WalletDropdown>
-                  </Wallet>
-                </div>
-              )}
-            </div>
+            {!compactNav ? (
+              <div
+                className={cn(
+                  "amini-header-wallet border-b border-[var(--ui-border)] px-2 pb-3 pt-1",
+                  cdpConfigured && address && "sm:hidden",
+                )}
+              >
+                {cdpConfigured ? (
+                  <div className="amini-header-cdp-login flex flex-col items-stretch" aria-label="Account">
+                    <CdpEmbeddedAuth />
+                  </div>
+                ) : (
+                  <div className="flex justify-center px-1">
+                    <Wallet>
+                      <ConnectWallet disconnectedLabel="Log in" />
+                      <WalletDropdown>
+                        <WalletDropdownDisconnect />
+                      </WalletDropdown>
+                    </Wallet>
+                  </div>
+                )}
+              </div>
+            ) : null}
 
             {address ? (
               <>
-                {/* Profile Section */}
-                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
-                  Profile
-                </div>
-                <MenuItem
-                  as={Link}
-                  href={profileHref}
-                  value="profile"
-                  className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-                >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--ui-brand-green)]/10">
-                    <Icon name="account" size="m" className="text-[var(--ui-brand-green)]" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="font-medium">My profile</span>
-                    <span className="text-xs text-[var(--ui-muted)]">View and edit</span>
-                  </div>
-                </MenuItem>
-
                 {/* Organizations Section */}
                 {orgs.length > 0 ? (
                   <>
-                    <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
-                      Organizations
-                    </div>
+                    <div className={sectionLabelClass}>Organizations</div>
                     {orgs.map((o) => (
                       <MenuItem
                         key={o.id}
                         as={Link}
                         href={`/organizations/${o.id}`}
                         value={`org-${o.id}`}
-                        className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                        className={menuItemClass}
                       >
                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--ui-brand-brown)]/10">
                           <Icon name="peopleGroup" size="m" className="text-[var(--ui-brand-brown)]" />
@@ -240,19 +261,17 @@ function ProfileMenu() {
                   </>
                 ) : null}
 
-                <div className="my-2 h-px w-full bg-gradient-to-r from-transparent via-[var(--ui-border)] to-transparent" />
+                <div className="my-1.5 h-px w-full bg-gradient-to-r from-transparent via-[var(--ui-border)] to-transparent" />
               </>
             ) : null}
 
             {/* Dashboards Section */}
-            <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
-              Dashboards
-            </div>
+            <div className={sectionLabelClass}>Dashboards</div>
             <MenuItem
               as={Link}
               href="/dashboard/donor"
               value="donor"
-              className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              className={menuItemClass}
             >
               <Icon name="account" size="m" className="text-[var(--ui-muted)]" />
               <span>Donor</span>
@@ -261,32 +280,21 @@ function ProfileMenu() {
               as={Link}
               href="/dashboard/organization"
               value="organization"
-              className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              className={menuItemClass}
             >
               <Icon name="peopleGroup" size="m" className="text-[var(--ui-muted)]" />
               <span>Organization</span>
             </MenuItem>
-            <MenuItem
-              as={Link}
-              href="/dashboard/admin"
-              value="admin"
-              className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-            >
-              <Icon name="securityShield" size="m" className="text-[var(--ui-muted)]" />
-              <span>Admin</span>
-            </MenuItem>
 
-            <div className="my-2 h-px w-full bg-gradient-to-r from-transparent via-[var(--ui-border)] to-transparent" />
+            <div className="my-1.5 h-px w-full bg-gradient-to-r from-transparent via-[var(--ui-border)] to-transparent" />
             
             {/* Actions Section */}
-            <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
-              Actions
-            </div>
+            <div className={sectionLabelClass}>Actions</div>
             <MenuItem
               as={Link}
               href="/organizations/register"
               value="register"
-              className="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+              className={menuItemClass}
             >
               <Icon name="document" size="m" className="text-[var(--ui-muted)]" />
               <span>Get Verified</span>
@@ -300,6 +308,32 @@ function ProfileMenu() {
                 >
                   Sign out
                 </SignOutButton>
+              </div>
+            ) : null}
+
+            {compactNav ? (
+              <div className="mt-1.5 flex items-center justify-between gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-1.5 dark:bg-[var(--ui-surface)]">
+                <span className="text-[12px] text-[var(--ui-muted)]">Theme</span>
+                <ThemeToggle />
+              </div>
+            ) : null}
+
+            {compactNav ? (
+              <div className="amini-header-wallet mt-1.5 border-t border-[var(--ui-border)] px-2 pt-1.5 sm:hidden">
+                {cdpConfigured ? (
+                  <div className="amini-header-cdp-login flex flex-col items-stretch" aria-label="Account">
+                    <CdpEmbeddedAuth signedInContent={<span className="text-[13px] font-semibold">Sign out</span>} />
+                  </div>
+                ) : (
+                  <div className="flex justify-center px-1">
+                    <Wallet>
+                      <ConnectWallet disconnectedLabel="Log in" />
+                      <WalletDropdown>
+                        <WalletDropdownDisconnect />
+                      </WalletDropdown>
+                    </Wallet>
+                  </div>
+                )}
               </div>
             ) : null}
           </div>
@@ -460,15 +494,21 @@ export function SiteHeader() {
               <Activity className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
             </Link>
             <Button
-              as={Link}
-              href="/campaigns/create"
+              as="span"
               variant="primary"
               compact
               font="label1"
               className="inline-flex shrink-0 whitespace-nowrap"
             >
-              <span className="md:hidden">Start</span>
-              <span className="hidden md:inline">Start a campaign</span>
+              <RequireAuthButtonLink
+                href="/campaigns/create"
+                variant="primary"
+                compact
+                className="inline-flex shrink-0 whitespace-nowrap"
+              >
+                <span className="md:hidden">Start</span>
+                <span className="hidden md:inline">Start a campaign</span>
+              </RequireAuthButtonLink>
             </Button>
 
             <ProfileMenu />

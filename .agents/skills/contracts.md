@@ -1,10 +1,51 @@
-# Contract Architecture Review
+# Contracts
 
-This document explains the current Amini on-chain funding model in reviewer-friendly terms.
+## Deployed contracts
+
+This repo uses **UUPS upgradeable proxies** (`ERC1967Proxy`) for the two core contracts:
+
+- `CampaignRegistry` (proxy + implementation)
+- `MilestoneEscrow` (proxy + implementation)
+
+### Base Sepolia (chain id 84532)
+
+#### Proxies (stable addresses)
+
+- **CampaignRegistry proxy**: `0xA2E3D5FBCdAd2Afd864d315a907C01076ccA35cB`
+- **MilestoneEscrow proxy**: `0xFbd60d72F412E1df2646dcd48A0c0DbF6c5e361A`
+
+#### Latest implementations (upgraded via UUPS)
+
+Upgraded with `packages/contracts/script/Upgrade.s.sol` on 2026-04-14.
+
+- **CampaignRegistry implementation**: `0xb9eBEe79606AF512cABE7A3447f1dE3f912E1de3`
+- **MilestoneEscrow implementation**: `0xCCC0275240438030Aaa71cFB3a406ADF2D2D8a94`
+
+### Deploying
+
+```bash
+cd packages/contracts
+forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast
+```
+
+### Upgrading
+
+```bash
+cd packages/contracts
+REGISTRY_PROXY_ADDRESS=<registry-proxy> \
+ESCROW_PROXY_ADDRESS=<escrow-proxy> \
+forge script script/Upgrade.s.sol --rpc-url base_sepolia --broadcast
+```
+
+---
+
+## Architecture
+
+This section explains the Amini on-chain funding model in reviewer-friendly terms.
 
 It is intended for engineering review, including external reviewers such as Coinbase teams, security reviewers, and ecosystem partners.
 
-## Overview
+### Overview
 
 Amini currently uses **two deployed application contracts** on Base Sepolia:
 
@@ -18,9 +59,9 @@ It also integrates with two external contracts/services:
 
 Only the first two are part of Amini's deployed contract system. EAS and USDC are external dependencies.
 
-## Why two contracts
+### Why two contracts
 
-### `CampaignRegistry`
+#### `CampaignRegistry`
 
 `CampaignRegistry` is the on-chain source of truth for campaign metadata required by the escrow:
 
@@ -32,7 +73,7 @@ Only the first two are part of Amini's deployed contract system. EAS and USDC ar
 
 This contract does **not** hold funds.
 
-### `MilestoneEscrow`
+#### `MilestoneEscrow`
 
 `MilestoneEscrow` is the on-chain funding and release engine:
 
@@ -44,7 +85,7 @@ This contract does **not** hold funds.
 
 This contract depends on `CampaignRegistry` to resolve the beneficiary and validate campaign configuration.
 
-## Upgrade model
+### Upgrade model
 
 Both contracts use **UUPS proxies**.
 
@@ -52,9 +93,7 @@ Both contracts use **UUPS proxies**.
 - Logic implementations can be upgraded
 - Upgrade authority is controlled by `OwnableUpgradeable`
 
-See `docs/CONTRACT_DEPLOYMENTS.md` for the current proxy and implementation addresses.
-
-## Admin model
+### Admin model
 
 The on-chain "admin" is the **proxy owner**.
 
@@ -65,9 +104,9 @@ That owner is set during `initialize(...)` and currently has two important power
 
 This means the release operation is intentionally centralized behind the admin account, even though attestation validity is still verified on-chain.
 
-If the admin must change, ownership should be rotated with `transferOwnership(newOwner)` on the proxy.
+To rotate admin, call `transferOwnership(newOwner)` on the **proxy address**.
 
-## High-level funding flow
+### High-level funding flow
 
 The funding model is milestone-gated:
 
@@ -82,14 +121,14 @@ The funding model is milestone-gated:
 
 This repeats until campaign completion.
 
-## Directed funding logic
+### Directed funding logic
 
 Donors can deposit in two ways:
 
 - **Directed milestone funding**
 - **General donation with no milestone preference**
 
-### Directed milestone funding
+#### Directed milestone funding
 
 The donor calls:
 
@@ -112,13 +151,13 @@ That means:
 
 If a donor targets a later milestone too early, the contract reverts with `MilestoneLocked()`.
 
-### General donation
+#### General donation
 
 If the donor passes `NO_MILESTONE_PREFERENCE`, the deposit is accepted without milestone gating.
 
 This supports campaign-level contributions while still preserving milestone-targeted funding for donors who want that specificity.
 
-## Release logic
+### Release logic
 
 Milestone release is sequential and admin-controlled.
 
@@ -142,11 +181,9 @@ If all checks pass:
 - transfers the configured milestone amount to the campaign beneficiary
 - emits `MilestoneReleased`
 
-## What is on-chain vs off-chain
+### What is on-chain vs off-chain
 
-### On-chain
-
-The following are enforced or recorded on-chain:
+#### On-chain
 
 - campaign registry entries
 - escrow balances
@@ -156,9 +193,7 @@ The following are enforced or recorded on-chain:
 - beneficiary payout amounts
 - EAS attestation validation
 
-### Off-chain
-
-The following are currently handled off-chain:
+#### Off-chain
 
 - donor display preference (`visible` vs `anonymous`)
 - donor messages
@@ -167,14 +202,9 @@ The following are currently handled off-chain:
 - admin dashboard review queue
 - indexer mirrors of deposits/releases
 
-This split is intentional:
+This split is intentional: financial state and release conditions are on-chain; UX, moderation, file uploads, and review workflow are off-chain.
 
-- financial state and release conditions are on-chain
-- UX, moderation, file uploads, and review workflow are off-chain
-
-## Proof review and EAS workflow
-
-The proof pipeline is:
+### Proof review and EAS workflow
 
 1. Organization submits proof to `milestone_proofs`
 2. Admin reviews the submission in the dashboard
@@ -189,9 +219,7 @@ Important distinction:
 - **EAS attestation** is the on-chain cryptographic checkpoint
 - **Milestone release** is the actual fund movement
 
-## Trust assumptions
-
-The current model assumes:
+### Trust assumptions
 
 - the admin acts honestly when reviewing proofs and issuing attestations
 - volunteer verification is handled operationally off-chain
@@ -199,9 +227,9 @@ The current model assumes:
 - the configured registry and escrow proxy addresses are correct
 - the UI and indexer reflect on-chain events accurately after indexing delay
 
-## Security properties
+### Security properties
 
-Current strong properties:
+**Strong properties:**
 
 - milestone payouts are fixed at initialization
 - organizations cannot arbitrarily change release amounts
@@ -209,14 +237,14 @@ Current strong properties:
 - invalid or revoked EAS attestations are rejected
 - milestone funding can be gated by progress
 
-Current centralized points:
+**Centralized points:**
 
 - admin controls upgrades
 - admin controls milestone release execution
 - admin controls attestation issuance in the current product workflow
 - proof review is off-chain
 
-## Reviewer checklist
+### Reviewer checklist
 
 A reviewer evaluating the system should validate:
 
@@ -228,17 +256,3 @@ A reviewer evaluating the system should validate:
 - `releaseMilestone()` attestation validation behavior
 - event/indexer consistency for deposits and releases
 - admin dashboard behavior when issuing attestations
-
-## Current contract set
-
-### Amini-deployed contracts
-
-- `CampaignRegistry`
-- `MilestoneEscrow`
-
-### External contracts used
-
-- Base Sepolia USDC
-- Base EAS contract
-
-There are no additional Amini application contracts required for the milestone funding model at this time.

@@ -12,7 +12,7 @@ The admin dashboard is accessible at `/dashboard/admin` and includes:
 
 ## Features
 
-### 1. Dashboard Statistics (`/dashboard/admin`)
+### Dashboard Statistics (`/dashboard/admin`)
 
 Real-time statistics showing:
 - **Total Volume**: Aggregate USDC deposited across all campaigns
@@ -20,7 +20,7 @@ Real-time statistics showing:
 - **Verified Organizations**: Count of approved organizations
 - **Pending Reviews**: Organizations awaiting approval
 
-### 2. Organization Approval Workflow
+### Organization Approval Workflow
 
 Each pending organization displays:
 - Organization name, logo, and description
@@ -34,7 +34,7 @@ Each pending organization displays:
 - **Approve**: Sets status to `approved`, updates profile role to `organization`, records verification timestamp
 - **Reject**: Sets status to `rejected` with optional reason
 
-### 3. Organizations Management (`/admin/organizations`)
+### Organizations Management (`/admin/organizations`)
 
 Comprehensive view with:
 - **Filters**: All / Pending / Approved / Rejected
@@ -47,7 +47,6 @@ Comprehensive view with:
 All admin endpoints require authentication via wallet address in the `x-wallet-address` header and verify admin role in the database.
 
 ### GET `/api/admin/stats`
-Returns dashboard statistics.
 
 **Response:**
 ```json
@@ -63,7 +62,6 @@ Returns dashboard statistics.
 ```
 
 ### GET `/api/admin/organizations/pending`
-Returns all pending organization registration requests.
 
 **Response:**
 ```json
@@ -77,27 +75,24 @@ Returns all pending organization registration requests.
       "description": "...",
       "country": "Kenya",
       "status": "pending",
-      "created_at": "2024-01-01T00:00:00Z",
-      ...
+      "created_at": "2024-01-01T00:00:00Z"
     }
   ]
 }
 ```
 
 ### POST `/api/admin/organizations/[id]/approve`
-Approves an organization.
 
 **Response:**
 ```json
 {
   "ok": true,
   "message": "Organization approved successfully",
-  "organization": { ... }
+  "organization": { }
 }
 ```
 
 ### POST `/api/admin/organizations/[id]/reject`
-Rejects an organization.
 
 **Request Body (optional):**
 ```json
@@ -111,7 +106,7 @@ Rejects an organization.
 {
   "ok": true,
   "message": "Organization rejected",
-  "organization": { ... }
+  "organization": { }
 }
 ```
 
@@ -122,10 +117,9 @@ Rejects an organization.
 Admin access requires the wallet address to have `role = 'admin'` in the `profiles` table:
 
 ```sql
--- Grant admin access to a wallet
 INSERT INTO public.profiles (wallet, role)
 VALUES ('0xYourAdminWallet', 'admin')
-ON CONFLICT (wallet) 
+ON CONFLICT (wallet)
 DO UPDATE SET role = 'admin';
 ```
 
@@ -147,22 +141,13 @@ import { useAdminAuth } from "@/hooks/useAdminAuth";
 
 function AdminComponent() {
   const { adminFetch, isConnected } = useAdminAuth();
-  
+
   const fetchData = async () => {
     const res = await adminFetch("/api/admin/stats");
     const data = await res.json();
   };
 }
 ```
-
-## Design System
-
-The admin dashboard follows the Amini branding guidelines:
-
-- **Colors**: Emerald (`#10B981`), Brown (`#7b4a2d`), Amber (`#d4a853`)
-- **Components**: Coinbase Design System (CDS)
-- **Typography**: Inter font family
-- **Theme**: Supports light/dark mode
 
 ## Security Considerations
 
@@ -181,9 +166,7 @@ The admin dashboard follows the Amini branding guidelines:
 
 5. **Environment Variables**: Keep `SUPABASE_SERVICE_ROLE_KEY` secure and never expose to client
 
-## Testing
-
-To test the admin dashboard locally:
+## Testing Locally
 
 1. Connect your wallet to the application
 2. Add your wallet to the profiles table as admin (see SQL above)
@@ -193,21 +176,15 @@ To test the admin dashboard locally:
 
 ## Troubleshooting
 
-**Issue**: "Access denied. Admin role required"
-- **Solution**: Verify your wallet address has `role = 'admin'` in the `profiles` table
+**"Access denied. Admin role required"** — Verify your wallet address has `role = 'admin'` in the `profiles` table.
 
-**Issue**: "Authentication required. Wallet address not provided"
-- **Solution**: Ensure wallet is connected and `useAdminAuth` hook is being used
+**"Authentication required. Wallet address not provided"** — Ensure wallet is connected and `useAdminAuth` hook is being used.
 
-**Issue**: Stats showing $0 or 0 campaigns
-- **Solution**: Check that Supabase tables have data and indexer is running
+**Stats showing $0 or 0 campaigns** — Check that Supabase tables have data and indexer is running.
 
-**Issue**: Organizations not loading
-- **Solution**: Verify `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set correctly
+**Organizations not loading** — Verify `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set correctly.
 
 ## Future Enhancements
-
-Potential additions to the admin dashboard:
 
 - [ ] Bulk approval/rejection actions
 - [ ] Email notifications for organization status changes

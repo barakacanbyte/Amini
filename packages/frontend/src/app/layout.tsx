@@ -1,6 +1,5 @@
 import "@/lib/ssrLocalStorageShim";
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import { headers } from "next/headers";
 import { cookieToInitialState } from "wagmi";
 import "@coinbase/cds-icons/fonts/web/icon-font.css";
@@ -11,8 +10,6 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { SiteHeader } from "@/components/SiteHeader";
 import { getWagmiConfig } from "@/lib/wagmiAminiConfig";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 /** Use ASCII punctuation only: fetch/Headers in the dev client require ISO-8859-1 header values. */
 export const metadata: Metadata = {
@@ -33,7 +30,7 @@ export default async function RootLayout({
   const wagmiInitialState = cookieToInitialState(getWagmiConfig(), cookieHeader);
 
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body className="app-root min-h-screen font-sans">
         <Providers initialState={wagmiInitialState}>
           <SiteHeader />

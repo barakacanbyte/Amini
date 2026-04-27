@@ -17,6 +17,7 @@ import {
   SignOutButton,
 } from "@coinbase/cdp-react";
 import { useCurrentUser, useEvmAddress } from "@coinbase/cdp-hooks";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 function shortAddress(address?: string) {
@@ -53,7 +54,7 @@ function getUserLabel(args: {
   return name || shortAddress(evmAddress);
 }
 
-export function CdpEmbeddedAuth() {
+export function CdpEmbeddedAuth(props: { signedInContent?: ReactNode } = {}) {
   const { evmAddress } = useEvmAddress();
   const { currentUser } = useCurrentUser();
   const [dbProfile, setDbProfile] = useState<DbProfile>(null);
@@ -114,7 +115,7 @@ export function CdpEmbeddedAuth() {
           variant="secondary"
           onSuccess={onSuccess}
         >
-          {label}
+          {props.signedInContent ?? label}
         </SignOutButton>
       )}
     />

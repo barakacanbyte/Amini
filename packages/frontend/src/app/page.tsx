@@ -19,20 +19,20 @@ const stats = [
 
 const advantages = [
   {
-    title: "Radical Transparency by Design",
-    body: "Amini transforms philanthropy from a \u201cleap of faith\u201d into a verifiable system by using a decentralized, battle-tested stack. Every dollar is traceable from contribution to expenditure, setting a new standard for financial transparency.",
+    title: "Trust by design",
+    body: "Escrow-held funds and on-chain EAS attestations make trust a system feature, not a donor assumption.",
   },
   {
-    title: "Milestone Verification via EAS Attestations",
-    body: "Amini replaces self-reported progress with cryptographic proof using Ethereum Attestation Service (EAS). Independent validators sign milestones on-chain, turning accountability into a verifiable, tamper-proof system.",
+    title: "Proof before payout",
+    body: "Organizations submit verified proof of work before each milestone unlocks, no results, no funds.",
   },
   {
-    title: "Enterprise-Grade Grant Disbursement Focus",
-    body: "Amini targets institutional funding, prioritizing compliance, auditability, and scale. By focusing on corporate and government flows, it positions transparency as a key advantage in high-value partnerships.",
+    title: "Radical transparency",
+    body: "Every fund movement is public and immutable. Donors choose their own visibility, fully anonymous or fully traceable.",
   },
   {
-    title: "Last-Mile Disbursement Verification",
-    body: "Amini ensures funds are not only sent but received by combining verifiable receipts, geolocation data, and local attestations. This closes the critical transparency gap at the final stage of disbursement, where accountability is often lost.",
+    title: "Accountable by default",
+    body: "Organizations cannot alter received records. Milestone gates create an unbreakable chain of accountability.",
   },
 ];
 
@@ -215,7 +215,7 @@ export default function HomePage() {
               as="h2"
               className="app-text text-2xl font-bold leading-tight sm:text-3xl md:text-4xl"
             >
-              Amini offers the following competitive advantages when compared to other platforms
+              Amini turns charitable giving from blind faith into verified impact
             </TextTitle2>
           </div>
           <div className="mt-10 grid gap-5 sm:mt-14 sm:grid-cols-2">
@@ -237,10 +237,10 @@ export default function HomePage() {
                   aria-hidden
                   className="pointer-events-none absolute -top-20 left-1/3 h-48 w-48 -translate-x-1/2 rounded-full bg-white/35 blur-3xl dark:bg-white/10"
                 />
-                <TextTitle3 as="h3" className="app-text relative text-lg font-bold sm:text-xl">
+                <TextTitle3 as="h3" className="app-text relative block text-lg font-bold sm:text-xl">
                   {item.title}
                 </TextTitle3>
-                <TextBody as="p" className="app-muted relative mt-3 leading-relaxed">
+                <TextBody as="p" className="app-muted relative mt-3 block leading-relaxed">
                   {item.body}
                 </TextBody>
               </article>

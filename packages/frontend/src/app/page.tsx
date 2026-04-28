@@ -67,7 +67,7 @@ const features = [
 
 const campaigns = [
   {
-    title: "USDC for Community Water Point",
+    title: "Community Water Point",
     summary: "Providing clean, solar-powered water access to over 500 households in the Turkana region.",
     tag: "WATER",
     tagClass: "bg-[color-mix(in_oklab,var(--ui-brand-green)_85%,transparent)] text-white",
@@ -90,7 +90,7 @@ const campaigns = [
   },
 ];
 
-const poweredBy = ["EAS", "SUPERFLUID", "XMTP", "IPFS (FILEBASE)", "WORLD ID"];
+const poweredBy = ["EAS", "BASE", "XMTP", "IPFS (FILEBASE)", "WORLD ID"];
 
 export default function HomePage() {
   return (

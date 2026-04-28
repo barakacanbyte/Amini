@@ -1495,15 +1495,6 @@ export function OrganizationProfileClient({
               id="org-campaigns"
               className="scroll-mt-28 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-[var(--ui-shadow-md)]"
             >
-              <TextTitle3 as="h2" className="text-[var(--ui-text)]">
-                Fund &amp; campaigns
-              </TextTitle3>
-              <TextBody className="mt-2 text-sm text-[var(--ui-muted)]">
-                Donations go to{" "}
-                <strong className="font-medium text-[var(--ui-text)]">milestone escrow on Base</strong> (USDC). Funds
-                move when milestones are completed and attested (EAS)—the same flow as every Amini campaign.
-              </TextBody>
-
               {featuredCampaign && !isOwner ? (
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <Button

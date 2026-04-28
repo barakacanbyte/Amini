@@ -1196,72 +1196,50 @@ export default function CampaignPage() {
           ) : null}
         </div>
 
-        <section
-          className="relative mb-8 overflow-hidden rounded-[1.75rem] border border-[var(--ui-border)] shadow-[var(--ui-shadow-md)]"
-          style={{
-            background:
-              "linear-gradient(135deg, color-mix(in oklab, var(--ui-brand-green) 11%, var(--ui-surface-elev)) 0%, var(--ui-surface-elev) 50%, color-mix(in oklab, var(--ui-brand-brown) 10%, var(--ui-surface-elev)) 100%)",
-          }}
-        >
-          <div
-            className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full opacity-40 blur-3xl"
-            style={{ background: "color-mix(in oklab, var(--ui-brand-green) 55%, transparent)" }}
-            aria-hidden
-          />
-          <div className="relative grid gap-6 p-6 md:gap-8 md:p-8 lg:grid-cols-5 lg:p-10">
-            {heroImageUrl ? (
-              <div className="relative aspect-[16/10] w-full overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-md)] lg:col-span-2 lg:aspect-auto lg:min-h-[260px]">
-                <Image
-                  src={heroImageUrl}
-                  alt=""
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 1024px) 100vw, 360px"
-                  unoptimized
-                />
-              </div>
-            ) : null}
-            <div
-              className={
-                heroImageUrl
-                  ? "flex flex-col justify-center lg:col-span-3"
-                  : "flex flex-col justify-center lg:col-span-5"
-              }
+        <section className="mb-8">
+          {heroImageUrl ? (
+            <div className="relative mb-6 aspect-[21/9] w-full overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)]">
+              <Image
+                src={heroImageUrl}
+                alt=""
+                fill
+                className="object-cover"
+                sizes="(max-width: 1024px) 100vw, 1024px"
+                priority
+                unoptimized
+              />
+            </div>
+          ) : null}
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap gap-2">
+              <Tag colorScheme={onChainOk ? "green" : "yellow"} emphasis="low">
+                {onChainOk ? "Live on-chain" : "Indexed metadata"}
+              </Tag>
+              <Tag colorScheme="gray" emphasis="low">
+                ID #{id}
+              </Tag>
+            </div>
+            <TextTitle2
+              as="h1"
+              className="text-3xl font-bold leading-tight tracking-tight text-[var(--ui-text)] md:text-4xl"
             >
-              <TextCaption
-                as="p"
-                className="font-bold uppercase tracking-[0.22em] text-[var(--ui-brand-green-strong)]"
-              >
-                Campaign · Chain {config.chainId}
-              </TextCaption>
-              <TextTitle2
-                as="h1"
-                className="brand-brown mt-2 text-3xl font-bold leading-tight tracking-tight md:text-4xl"
-              >
-                {displayTitle}
-              </TextTitle2>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Tag colorScheme={onChainOk ? "green" : "yellow"} emphasis="low">
-                  {onChainOk ? "Live on-chain" : "Indexed metadata"}
-                </Tag>
-                <Tag colorScheme="gray" emphasis="low">
-                  ID #{id}
-                </Tag>
-              </div>
-              {dbCampaign?.description?.trim() ? (
-                <TextBody as="p" className="app-text mt-4 max-w-3xl text-base leading-relaxed">
-                  {dbCampaign.description.trim()}
-                </TextBody>
-              ) : null}
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {displayTitle}
+            </TextTitle2>
+            {dbCampaign?.description?.trim() ? (
+              <TextBody as="p" className="app-text max-w-3xl text-base leading-relaxed">
+                {dbCampaign.description.trim()}
+              </TextBody>
+            ) : null}
+            {displayOwner || displayBeneficiary ? (
+              <div className="grid gap-3 sm:grid-cols-2">
                 {displayOwner ? (
-                  <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-2.5">
+                  <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)]">Owner</p>
                     <p className="mt-1 truncate font-mono text-sm text-[var(--ui-text)]">{displayOwner}</p>
                   </div>
                 ) : null}
                 {displayBeneficiary ? (
-                  <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-2.5">
+                  <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ui-muted)]">
                       Beneficiary
                     </p>
@@ -1269,12 +1247,11 @@ export default function CampaignPage() {
                   </div>
                 ) : null}
               </div>
-              {!displayOwner && !displayBeneficiary ? (
-                <TextBody as="p" className={`${mutedClass} mt-3`}>
-                  Owner / beneficiary addresses are not available from the index yet.
-                </TextBody>
-              ) : null}
-            </div>
+            ) : (
+              <TextBody as="p" className={mutedClass}>
+                Owner / beneficiary addresses are not available from the index yet.
+              </TextBody>
+            )}
           </div>
         </section>
 

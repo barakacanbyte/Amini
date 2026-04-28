@@ -137,8 +137,8 @@ function ProfileMenu() {
     : "/dashboard/donor";
 
   const displayName = profileName || (address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Account");
-  const displayEmail = address || "Connect wallet";
-  const displayEmailCompact = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Connect wallet";
+  const displayEmail = address || "Log in";
+  const displayEmailCompact = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Log in";
   const menuItemClass =
     "flex items-center gap-3 px-3 py-1.5 text-[13px] font-medium rounded-xl transition-colors hover:bg-black/5 dark:hover:bg-white/5";
   const sectionLabelClass =

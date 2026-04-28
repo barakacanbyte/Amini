@@ -37,23 +37,40 @@ export type CampaignExplorerRow = CampaignRow & {
 
 const PAGE_SIZE = 6;
 
-const REGION_FILTERS: { value: string; label: string; keywords: string[] }[] = [
-  { value: "all", label: "All regions", keywords: [] },
-  { value: "africa", label: "Sub-Saharan Africa", keywords: ["africa", "sahel", "senegal", "kenya", "namib"] },
-  { value: "asia", label: "Southeast Asia", keywords: ["asia", "java", "indonesia", "vietnam", "thailand"] },
-  {
-    value: "americas",
-    label: "Latin America",
-    keywords: ["latin", "peru", "amazon", "brazil", "mexico", "andean"],
-  },
+const REGION_OPTIONS = [
+  { value: "all", label: "All Regions" },
+  { value: "north-america", label: "North America" },
+  { value: "latin-america", label: "Latin America & Caribbean" },
+  { value: "western-europe", label: "Western Europe" },
+  { value: "eastern-europe", label: "Eastern Europe & Central Asia" },
+  { value: "middle-east", label: "Middle East & North Africa" },
+  { value: "sub-saharan-africa", label: "Sub-Saharan Africa" },
+  { value: "south-asia", label: "South Asia" },
+  { value: "east-asia", label: "East Asia & Pacific" },
+  { value: "southeast-asia", label: "Southeast Asia" },
+  { value: "oceania", label: "Australia & Oceania" },
 ];
 
-const CAUSE_FILTERS: { value: string; label: string; keywords: string[] }[] = [
-  { value: "all", label: "All causes", keywords: [] },
-  { value: "forest", label: "Reforestation", keywords: ["forest", "tree", "green", "carbon", "amazon", "lidar"] },
-  { value: "water", label: "Water infrastructure", keywords: ["water", "well", "aquifer", "groundwater"] },
-  { value: "education", label: "Digital literacy", keywords: ["school", "education", "digital", "literacy", "hub"] },
+const CAUSE_OPTIONS = [
+  { value: "all", label: "All Causes" },
+  { value: "climate", label: "Climate Action" },
+  { value: "reforestation", label: "Reforestation" },
+  { value: "clean-water", label: "Clean Water & Sanitation" },
+  { value: "education", label: "Education" },
+  { value: "digital-literacy", label: "Digital Literacy" },
+  { value: "healthcare", label: "Healthcare & Medicine" },
+  { value: "food-security", label: "Food Security & Agriculture" },
+  { value: "renewable-energy", label: "Renewable Energy" },
+  { value: "wildlife", label: "Wildlife Conservation" },
+  { value: "poverty", label: "Poverty Alleviation" },
+  { value: "disaster-relief", label: "Disaster Relief" },
+  { value: "human-rights", label: "Human Rights" },
+  { value: "gender-equality", label: "Gender Equality" },
+  { value: "economic-growth", label: "Economic Growth" },
+  { value: "infrastructure", label: "Infrastructure" },
+  { value: "community", label: "Community Development" },
 ];
+
 
 const URGENCY_FILTERS: { value: string; label: string }[] = [
   { value: "all", label: "Standard" },
@@ -82,10 +99,6 @@ function campaignDescription(c: CampaignExplorerRow): string {
   return `Milestone-based USDC campaign with transparent releases. Beneficiary ${c.beneficiary.slice(0, 10)}…`;
 }
 
-function matchesKeywords(haystack: string, keywords: string[]): boolean {
-  if (keywords.length === 0) return true;
-  return keywords.some((k) => haystack.includes(k));
-}
 
 function urgencyBucket(c: CampaignExplorerRow): "standard" | "high" | "critical" {
   const target = safeBigInt(c.target_amount);
@@ -137,6 +150,42 @@ function campaignInitial(c: CampaignExplorerRow): string {
   return ch && /[\w\d]/i.test(ch) ? ch.toUpperCase() : "#";
 }
 
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (val: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <TextLabel2 as="label" className="text-[10px] font-bold uppercase tracking-widest text-[var(--ui-muted)]">
+        {label}
+      </TextLabel2>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full appearance-none rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-4 py-2.5 pr-10 text-sm font-medium text-[var(--ui-text)] shadow-sm transition-all hover:border-emerald-500/50 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 cursor-pointer min-w-[180px]"
+        >
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ui-muted)]">
+          <IconChevronDown className="h-4 w-4" />
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function FilterPill({
   active,
   children,
@@ -170,8 +219,6 @@ export function CampaignExplorerClient({ campaigns }: { campaigns: CampaignExplo
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const regionCfg = REGION_FILTERS.find((r) => r.value === region) ?? REGION_FILTERS[0];
-    const causeCfg = CAUSE_FILTERS.find((c) => c.value === cause) ?? CAUSE_FILTERS[0];
 
     return campaigns.filter((c) => {
       const blob = [
@@ -189,11 +236,59 @@ export function CampaignExplorerClient({ campaigns }: { campaigns: CampaignExplo
         .toLowerCase();
       if (q && !blob.includes(q)) return false;
 
-      const meta = (c.metadata_uri ?? "").toLowerCase();
-      const title = campaignTitle(c).toLowerCase();
-      const hay = `${meta} ${title} ${String(c.id)} ${c.region ?? ""} ${c.cause ?? ""} ${(c.tags ?? []).join(" ")}`.toLowerCase();
-      if (region !== "all" && !matchesKeywords(hay, regionCfg.keywords)) return false;
-      if (cause !== "all" && !matchesKeywords(hay, causeCfg.keywords)) return false;
+      // Region filter - match campaign region field or metadata
+      if (region !== "all") {
+        const campaignRegion = (c.region ?? "").toLowerCase().replace(/[_\s-]/g, "");
+        const targetRegion = region.toLowerCase().replace(/[_\s-]/g, "");
+        if (!campaignRegion.includes(targetRegion) && !targetRegion.includes(campaignRegion)) {
+          // Fallback: check if region keywords appear in description/title
+          const hay = `${c.title ?? ""} ${c.description ?? ""}`.toLowerCase();
+          const regionKeywords: Record<string, string[]> = {
+            "north-america": ["north america", "usa", "canada", "mexico", "us", "united states"],
+            "latin-america": ["latin america", "caribbean", "brazil", "argentina", "colombia", "peru", "chile"],
+            "western-europe": ["western europe", "germany", "france", "uk", "italy", "spain", "netherlands"],
+            "eastern-europe": ["eastern europe", "central asia", "poland", "ukraine", "romania", "kazakhstan"],
+            "middle-east": ["middle east", "mena", "morocco", "egypt", "israel", "uae", "saudi", "iran", "iraq"],
+            "sub-saharan-africa": ["africa", "kenya", "nigeria", "ethiopia", "ghana", "tanzania", "uganda"],
+            "south-asia": ["south asia", "india", "pakistan", "bangladesh", "nepal", "sri lanka"],
+            "east-asia": ["east asia", "pacific", "china", "japan", "korea", "mongolia"],
+            "southeast-asia": ["southeast asia", "indonesia", "vietnam", "thailand", "philippines", "myanmar"],
+            "oceania": ["oceania", "australia", "new zealand", "papua", "fiji"],
+          };
+          const keywords = regionKeywords[region] || [];
+          if (!keywords.some(k => hay.includes(k))) return false;
+        }
+      }
+
+      // Cause filter - match campaign cause field or metadata
+      if (cause !== "all") {
+        const campaignCause = (c.cause ?? "").toLowerCase().replace(/[_\s-]/g, "");
+        const targetCause = cause.toLowerCase().replace(/[_\s-]/g, "");
+        if (!campaignCause.includes(targetCause) && !targetCause.includes(campaignCause)) {
+          // Fallback: check if cause keywords appear in description/title/tags
+          const hay = `${c.title ?? ""} ${c.description ?? ""} ${(c.tags ?? []).join(" ")}`.toLowerCase();
+          const causeKeywords: Record<string, string[]> = {
+            "climate": ["climate", "carbon", "emission", "global warming"],
+            "reforestation": ["reforestation", "afforestation", "forest", "tree", "planting", "woodland"],
+            "clean-water": ["clean water", "sanitation", "well", "aquifer", "drinking water", "hygiene"],
+            "education": ["education", "school", "learning", "scholarship", "teaching"],
+            "digital-literacy": ["digital literacy", "computer", "internet", "technology", "coding", "tech"],
+            "healthcare": ["healthcare", "medicine", "medical", "hospital", "clinic", "doctor", "health"],
+            "food-security": ["food security", "agriculture", "farming", "hunger", "nutrition", "crop"],
+            "renewable-energy": ["renewable energy", "solar", "wind", "hydro", "clean energy", "green energy"],
+            "wildlife": ["wildlife", "conservation", "animal", "biodiversity", "species", "habitat"],
+            "poverty": ["poverty", "poor", "low income", "economic hardship", "financial assistance"],
+            "disaster-relief": ["disaster", "relief", "emergency", "humanitarian", "crisis", "aid"],
+            "human-rights": ["human rights", "civil rights", "justice", "advocacy", "freedom"],
+            "gender-equality": ["gender equality", "women empowerment", "female", "girl", "lgbtq", "equality"],
+            "economic-growth": ["economic growth", "business", "entrepreneurship", "job", "employment", "trade"],
+            "infrastructure": ["infrastructure", "road", "bridge", "building", "construction", "facility"],
+            "community": ["community", "local", "neighborhood", "social cohesion", "grassroots"],
+          };
+          const keywords = causeKeywords[cause] || [];
+          if (!keywords.some(k => hay.includes(k))) return false;
+        }
+      }
 
       if (urgency !== "all") {
         const u = urgencyBucket(c);
@@ -252,41 +347,26 @@ export function CampaignExplorerClient({ campaigns }: { campaigns: CampaignExplo
         </div>
       </div>
 
-      <div className="mt-5 flex flex-col gap-3 border-t border-[var(--ui-border)] pt-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <TextLabel2 as="span" className="app-muted w-full py-1 text-[10px] uppercase tracking-widest sm:w-auto sm:pr-2">
-            Region
-          </TextLabel2>
-          {REGION_FILTERS.map((r) => (
-            <FilterPill
-              key={r.value}
-              active={region === r.value}
-              onClick={() => {
-                setRegion(r.value);
-                setPage(1);
-              }}
-            >
-              {r.label}
-            </FilterPill>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <TextLabel2 as="span" className="app-muted w-full py-1 text-[10px] uppercase tracking-widest sm:w-auto sm:pr-2">
-            Cause
-          </TextLabel2>
-          {CAUSE_FILTERS.map((cf) => (
-            <FilterPill
-              key={cf.value}
-              active={cause === cf.value}
-              onClick={() => {
-                setCause(cf.value);
-                setPage(1);
-              }}
-            >
-              {cf.label}
-            </FilterPill>
-          ))}
-        </div>
+      {/* Professional Filter Bar with Dropdowns */}
+      <div className="mt-5 flex flex-col gap-4 border-t border-[var(--ui-border)] pt-5 sm:flex-row sm:items-end sm:gap-6">
+        <FilterSelect
+          label="Region"
+          value={region}
+          options={REGION_OPTIONS}
+          onChange={(val) => {
+            setRegion(val);
+            setPage(1);
+          }}
+        />
+        <FilterSelect
+          label="Cause"
+          value={cause}
+          options={CAUSE_OPTIONS}
+          onChange={(val) => {
+            setCause(val);
+            setPage(1);
+          }}
+        />
       </div>
 
       <CampaignsSectionDivider />
@@ -514,6 +594,14 @@ function IconVerified({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+    </svg>
+  );
+}
+
+function IconChevronDown({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
     </svg>
   );
 }

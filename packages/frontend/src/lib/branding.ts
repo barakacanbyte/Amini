@@ -1,9 +1,9 @@
 /**
- * Public app logo (`public/logo.png`). Use absolute URL in CDP / iframes when
- * `NEXT_PUBLIC_SITE_URL` is set (e.g. `https://your-domain.com`).
+ * Public app logo (`public/logo.png`). Use absolute URL in CDP / iframes.
+ * Falls back to production URL if NEXT_PUBLIC_SITE_URL is not set.
  */
 export function getPublicLogoUrl(): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim().replace(/\/$/, "");
-  if (base) return `${base}/logo.png`;
-  return "/logo.png";
+  const envBase = (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim().replace(/\/$/, "");
+  const base = envBase || "https://amini-project.vercel.app";
+  return `${base}/logo.png`;
 }

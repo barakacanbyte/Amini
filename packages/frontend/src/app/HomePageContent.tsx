@@ -77,6 +77,11 @@ export type HomeCampaignCard = {
 
 const poweredBy = ["EAS", "BASE", "XMTP", "IPFS (FILEBASE)", "WORLD ID"];
 
+/** CDS `primary` maps to theme tokens that are not always brand green in dark mode */
+/** `!rounded-full`: CDS borderRadius 900 = 56px (pill at default 56px height); Tailwind base can otherwise flatten `button.cds-Button` corners */
+const startCampaignButtonClass =
+  "!rounded-full !px-6 !min-w-[10.5rem] !border-transparent !bg-[var(--ui-brand-green)] !text-white hover:!brightness-[1.05] active:!brightness-[0.95] shadow-[0_4px_14px_-4px_rgba(16,185,129,0.45)]";
+
 export default function HomePageContent({ campaigns }: { campaigns: HomeCampaignCard[] }) {
   return (
     <main className="app-page">
@@ -108,7 +113,7 @@ export default function HomePageContent({ campaigns }: { campaigns: HomeCampaign
                 <RequireAuthButtonLink
                   href="/campaigns/create"
                   variant="primary"
-                  className="!px-6 !min-w-[10.5rem]"
+                  className={startCampaignButtonClass}
                 >
                   Start Campaign
                 </RequireAuthButtonLink>
@@ -160,7 +165,7 @@ export default function HomePageContent({ campaigns }: { campaigns: HomeCampaign
               <RequireAuthButtonLink
                 href="/campaigns/create"
                 variant="primary"
-                className="!px-6 !min-w-[10.5rem]"
+                className={startCampaignButtonClass}
               >
                 Start Campaign
               </RequireAuthButtonLink>
@@ -285,11 +290,8 @@ export default function HomePageContent({ campaigns }: { campaigns: HomeCampaign
               as="h2"
               className="app-text text-2xl font-bold leading-tight sm:text-3xl md:text-4xl"
             >
-              Track your fundings in real time
+              Track your Fundings
             </TextTitle2>
-            <TextBody as="p" className="app-muted mt-4 text-base sm:text-lg">
-              Monitor the flow of money into your project in real time using Amini.
-            </TextBody>
           </div>
 
           {campaigns.length === 0 ? (
@@ -301,7 +303,7 @@ export default function HomePageContent({ campaigns }: { campaigns: HomeCampaign
                 <RequireAuthButtonLink
                   href="/campaigns/create"
                   variant="primary"
-                  className="!px-6 !min-w-[10.5rem]"
+                  className={startCampaignButtonClass}
                 >
                   Start Campaign
                 </RequireAuthButtonLink>
@@ -418,7 +420,7 @@ export default function HomePageContent({ campaigns }: { campaigns: HomeCampaign
               <RequireAuthButtonLink
                 href="/campaigns/create"
                 variant="primary"
-                className="!px-6 !min-w-[10.5rem]"
+                className={startCampaignButtonClass}
               >
                 Create Campaign
               </RequireAuthButtonLink>

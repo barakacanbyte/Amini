@@ -3,6 +3,7 @@
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { SignInModal, SignInModalContent } from "@coinbase/cdp-react";
 import { useCurrentUser } from "@coinbase/cdp-hooks";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { MouseEvent, ReactNode } from "react";
 import { useMemo, useState } from "react";
@@ -29,24 +30,22 @@ export function RequireAuthButtonLink(props: {
   }, [cdpConfigured, currentUser, isConnected]);
 
   const onClick = (e: MouseEvent) => {
-    if (isAuthed) {
-      router.push(href);
-      return;
-    }
+    if (isAuthed) return;
     e.preventDefault();
     setOpen(true);
   };
 
   return (
     <>
-      <Button
-        onClick={onClick}
-        variant={variant}
-        className={className}
-        compact={compact}
-      >
-        {children}
-      </Button>
+      {isAuthed ? (
+        <Button as={Link} href={href} variant={variant} className={className} compact={compact}>
+          {children}
+        </Button>
+      ) : (
+        <Button type="button" onClick={onClick} variant={variant} className={className} compact={compact}>
+          {children}
+        </Button>
+      )}
       {cdpConfigured ? (
         <SignInModal
           authMethods={["email"]}

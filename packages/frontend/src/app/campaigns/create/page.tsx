@@ -26,6 +26,10 @@ import {
   formatUsdc,
   tryParseUsdc,
 } from "@/lib/contracts";
+import {
+  canonicalTxHashFromCdpUserOperation,
+  cdpEvmNetworkFromChainId,
+} from "@/lib/cdpEvm";
 
 /* ------------------------------------------------------------------ */
 /* Constants                                                          */
@@ -255,8 +259,18 @@ export default function CreateCampaignPage() {
   /* ---- Contract interaction ---- */
   const publicClient = usePublicClient();
   const { currentUser } = useCurrentUser();
-  const smartAccount = currentUser?.evmSmartAccounts?.[0];
-  const isSmartWallet = !!(smartAccount && address && address.toLowerCase() === smartAccount.toLowerCase());
+  const cdpEvmNetwork = useMemo(() => cdpEvmNetworkFromChainId(config.chainId), []);
+  const smartAccount = useMemo((): `0x${string}` | undefined => {
+    const raw = currentUser?.evmSmartAccounts;
+    if (!Array.isArray(raw) || !address) return undefined;
+    const want = address.toLowerCase();
+    for (const a of raw) {
+      if (typeof a !== "string" || !/^0x[a-fA-F0-9]{40}$/i.test(a)) continue;
+      if (a.toLowerCase() === want) return a as `0x${string}`;
+    }
+    return undefined;
+  }, [currentUser?.evmSmartAccounts, address]);
+  const isSmartWallet = Boolean(smartAccount);
   
   // CDP smart account hook for user operations
   const { 
@@ -265,16 +279,12 @@ export default function CreateCampaignPage() {
   } = useSendUserOperation();
   const { data: cdpUserOperation, error: cdpUserOperationError } = useWaitForUserOperation({
     userOperationHash: pendingUserOperationHash ?? undefined,
-    evmSmartAccount: smartAccount as `0x${string}` | undefined,
-    network: "base-sepolia",
+    evmSmartAccount: smartAccount,
+    network: cdpEvmNetwork,
     enabled: Boolean(pendingUserOperationHash && isSmartWallet && submitStep === "creating"),
   });
-  const cdpTransactionHash =
-    cdpUserOperation?.transactionHash ||
-    cdpUserOperation?.receipts?.find((receipt) => receipt.transactionHash)?.transactionHash;
-  const hasCanonicalCdpTransactionHash = Boolean(
-    cdpTransactionHash && /^0x[a-fA-F0-9]{64}$/.test(cdpTransactionHash),
-  );
+  const cdpTransactionHash = canonicalTxHashFromCdpUserOperation(cdpUserOperation);
+  const hasCanonicalCdpTransactionHash = Boolean(cdpTransactionHash);
   
   // Wagmi hooks for EOA fallback
   const { writeContract: writeRegistry, data: txCreate, isPending: isPendingCreate, error: txCreateError } = useWriteContract();
@@ -983,20 +993,15 @@ export default function CreateCampaignPage() {
 
     try {
       if (isSmartWallet && smartAccount) {
-        // Use CDP sendUserOperation for smart wallets
-        console.log("[Campaign Create] Using CDP sendUserOperation for smart wallet");
         const callData = encodeFunctionData({
           abi: campaignRegistryAbi,
           functionName: "createCampaign",
           args: [address as `0x${string}`, target, milestones.length, uri],
         });
-        
-        // Explicitly use base-sepolia network
-        console.log("[Campaign Create] Sending to base-sepolia network");
-        
+
         const result = await sendUserOperation({
           evmSmartAccount: smartAccount,
-          network: "base-sepolia",
+          network: cdpEvmNetwork,
           calls: [{
             to: registryAddress as `0x${string}`,
             data: callData,
@@ -1019,7 +1024,7 @@ export default function CreateCampaignPage() {
       setErrorMsg("Failed to create campaign: " + (err as Error).message);
       setSubmitStep("error");
     }
-  }, [canSubmit, registryAddress, escrowAddress, address, title, description, targetAmount, milestones, region, stateLoc, tags, deadline, beneficiaryDescription, contactEmail, socialLinks, impactMetrics, imageFile, isSmartWallet, smartAccount, sendUserOperation, writeRegistry]);
+  }, [canSubmit, registryAddress, escrowAddress, address, title, description, targetAmount, milestones, region, stateLoc, tags, deadline, beneficiaryDescription, contactEmail, socialLinks, impactMetrics, imageFile, isSmartWallet, smartAccount, sendUserOperation, writeRegistry, cdpEvmNetwork]);
 
   function handleInitEscrow() {
     if (!escrowAddress || createdCampaignId === undefined || !config.usdc) return;

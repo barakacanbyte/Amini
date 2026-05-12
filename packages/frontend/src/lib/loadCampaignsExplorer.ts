@@ -94,30 +94,46 @@ function mergeCampaignRows(
   }));
 }
 
+function summarizeExplorerFetchError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const parts = [e.message];
+  const c = e.cause;
+  if (c instanceof Error && c.message) parts.push(c.message);
+  const joined = parts.join(" ");
+  if (/ENOTFOUND|getaddrinfo|fetch failed/i.test(joined)) {
+    return `${joined} — Check NEXT_PUBLIC_SUPABASE_URL, that the Supabase project exists (not paused), and your network/DNS.`;
+  }
+  return joined;
+}
+
 /**
  * Loads published campaigns for the public explorer (server-only).
  * Uses the service role so listing works without exposing anon table policies.
  */
 export async function loadCampaignsForExplorer(): Promise<CampaignsExplorerLoadResult> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl?.trim() || !serviceRole?.trim()) {
-    return { kind: "unconfigured" };
+    if (!supabaseUrl?.trim() || !serviceRole?.trim()) {
+      return { kind: "unconfigured" };
+    }
+
+    const campaignsRes = await fetchCampaignRows(supabaseUrl, serviceRole);
+    if (!campaignsRes.ok) {
+      return { kind: "error", message: campaignsRes.message };
+    }
+
+    const [raisedMap, attestedMap] = await Promise.all([
+      loadDepositTotalsByCampaign(supabaseUrl, serviceRole),
+      loadAttestedReleaseCounts(supabaseUrl, serviceRole),
+    ]);
+
+    return {
+      kind: "ok",
+      rows: mergeCampaignRows(campaignsRes.rows, raisedMap, attestedMap),
+    };
+  } catch (e) {
+    return { kind: "error", message: summarizeExplorerFetchError(e) };
   }
-
-  const campaignsRes = await fetchCampaignRows(supabaseUrl, serviceRole);
-  if (!campaignsRes.ok) {
-    return { kind: "error", message: campaignsRes.message };
-  }
-
-  const [raisedMap, attestedMap] = await Promise.all([
-    loadDepositTotalsByCampaign(supabaseUrl, serviceRole),
-    loadAttestedReleaseCounts(supabaseUrl, serviceRole),
-  ]);
-
-  return {
-    kind: "ok",
-    rows: mergeCampaignRows(campaignsRes.rows, raisedMap, attestedMap),
-  };
 }

@@ -29,6 +29,10 @@ import {
   parseUsdc,
   tryParseUsdc,
 } from "@/lib/contracts";
+import {
+  canonicalTxHashFromCdpUserOperation,
+  cdpEvmNetworkFromChainId,
+} from "@/lib/cdpEvm";
 import { BASE_SEPOLIA_CHAIN_ID } from "@amini/shared";
 import type { DonorListItem } from "@/lib/organizationTypes";
 import {
@@ -224,8 +228,18 @@ export default function CampaignPage() {
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
   const { currentUser } = useCurrentUser();
-  const smartAccount = currentUser?.evmSmartAccounts?.[0];
-  const isSmartWallet = !!(smartAccount && address && address.toLowerCase() === smartAccount.toLowerCase());
+  const cdpDonationNetwork = useMemo(() => cdpEvmNetworkFromChainId(config.chainId), []);
+  const smartAccount = useMemo((): `0x${string}` | undefined => {
+    const raw = currentUser?.evmSmartAccounts;
+    if (!Array.isArray(raw) || !address) return undefined;
+    const want = address.toLowerCase();
+    for (const a of raw) {
+      if (typeof a !== "string" || !/^0x[a-fA-F0-9]{40}$/i.test(a)) continue;
+      if (a.toLowerCase() === want) return a as `0x${string}`;
+    }
+    return undefined;
+  }, [currentUser?.evmSmartAccounts, address]);
+  const isSmartWallet = Boolean(smartAccount);
   const { sendUserOperation } = useSendUserOperation();
 
   const registryAddress = config.campaignRegistry;
@@ -265,6 +279,7 @@ export default function CampaignPage() {
   const [donorProfileAvatar, setDonorProfileAvatar] = useState<string | null>(null);
   const [depositSuccessBanner, setDepositSuccessBanner] = useState(false);
   const [pendingDonationUserOpHash, setPendingDonationUserOpHash] = useState<`0x${string}` | null>(null);
+  const [donationCdpBusy, setDonationCdpBusy] = useState(false);
   const [proofMilestoneIndex, setProofMilestoneIndex] = useState<number | null>(null);
   const [proofTitle, setProofTitle] = useState("");
   const [proofDescription, setProofDescription] = useState("");
@@ -355,13 +370,15 @@ export default function CampaignPage() {
   const { isLoading: isConfirmingRelease } = useWaitForTransactionReceipt({ hash: txRelease });
   const { data: donationCdpUserOp, error: donationCdpUserOpError } = useWaitForUserOperation({
     userOperationHash: pendingDonationUserOpHash ?? undefined,
-    evmSmartAccount: smartAccount as `0x${string}` | undefined,
-    network: "base-sepolia",
+    evmSmartAccount: smartAccount,
+    network: cdpDonationNetwork,
     enabled: Boolean(pendingDonationUserOpHash && isSmartWallet),
   });
-  const cdpDonationTxHash = donationCdpUserOp?.transactionHash || undefined;
+  const cdpDonationTxHash = canonicalTxHashFromCdpUserOperation(donationCdpUserOp);
   const cdpDonationConfirmed = !!cdpDonationTxHash;
-  const isPendingDonationCdp = Boolean(pendingDonationUserOpHash && !cdpDonationConfirmed);
+  const isPendingDonationCdp = Boolean(
+    donationCdpBusy || (pendingDonationUserOpHash && !cdpDonationConfirmed),
+  );
 
   type CampaignTuple = readonly [owner: `0x${string}`, beneficiary: `0x${string}`, targetAmount: bigint, milestoneCount: number, metadataUri: string, exists: boolean];
   const c = campaign as CampaignTuple | undefined;
@@ -633,6 +650,8 @@ export default function CampaignPage() {
     if (amountWei === null) return;
 
     if (isSmartWallet && smartAccount) {
+      if (donationCdpBusy) return;
+      setDonationCdpBusy(true);
       try {
         setDonationError(null);
         setDonationStatus("Preparing gasless batch donation (approve + deposit)...");
@@ -651,18 +670,24 @@ export default function CampaignPage() {
         });
         const result = await sendUserOperation({
           evmSmartAccount: smartAccount,
-          network: "base-sepolia",
+          network: cdpDonationNetwork,
           calls: [
             { to: config.usdc as `0x${string}`, data: approveCallData, value: 0n },
             { to: escrowAddress as `0x${string}`, data: depositCallData, value: 0n },
           ],
           useCdpPaymaster: true,
         });
-        setPendingDonationUserOpHash(result.userOperationHash as `0x${string}`);
+        const hash = result.userOperationHash as `0x${string}` | undefined;
+        if (!hash) {
+          throw new Error("CDP did not return a user operation hash.");
+        }
+        setPendingDonationUserOpHash(hash);
         setDonationStatus("Gasless donation submitted. Waiting for confirmation...");
       } catch (e) {
         setDonationError((e as Error).message || "Gasless donation failed.");
         setDonationStatus(null);
+      } finally {
+        setDonationCdpBusy(false);
       }
       return;
     }
@@ -1012,7 +1037,8 @@ export default function CampaignPage() {
     const effectiveTxHash = txDeposit || cdpDonationTxHash;
     if (!effectiveTxHash) return;
     if (depositPrefSavedRef.current === effectiveTxHash) return;
-    depositPrefSavedRef.current = effectiveTxHash;
+
+    let cancelled = false;
 
     (async () => {
       try {
@@ -1021,11 +1047,22 @@ export default function CampaignPage() {
         const cdpToken = await getCdpAccessToken();
         let signature = "";
         if (!cdpToken) {
-          try { signature = await signMessageAsync({ message }); } catch { return; }
+          try {
+            signature = await signMessageAsync({ message });
+          } catch {
+            if (!cancelled) {
+              setDonationError("Sign the message to save your donor preferences, or try again.");
+            }
+            return;
+          }
         } else {
-          try { signature = await signMessageAsync({ message }); } catch { /* CDP may verify via token */ }
+          try {
+            signature = await signMessageAsync({ message });
+          } catch {
+            /* CDP may verify via token */
+          }
         }
-        await fetch("/api/donations/preferences", {
+        const res = await fetch("/api/donations/preferences", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -1038,13 +1075,25 @@ export default function CampaignPage() {
             cdpAccessToken: cdpToken ?? undefined,
           }),
         });
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+        if (cancelled) return;
+        if (!res.ok || !json.ok) {
+          setDonationError(json.message ?? `Could not save donor preferences (${res.status}).`);
+          return;
+        }
+        depositPrefSavedRef.current = effectiveTxHash;
         setDepositSuccessBanner(true);
         setTimeout(() => setDepositSuccessBanner(false), 8000);
-      } catch {
-        setDepositSuccessBanner(true);
-        setTimeout(() => setDepositSuccessBanner(false), 8000);
+      } catch (e) {
+        if (!cancelled) {
+          setDonationError((e as Error).message || "Could not save donor preferences.");
+        }
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [depositConfirmed, txDeposit, cdpDonationTxHash, address, fundAnonymous, fundMessage, getCdpAccessToken, signMessageAsync]);
 
   useEffect(() => {
@@ -1182,20 +1231,18 @@ export default function CampaignPage() {
         <div className="app-surface mx-auto max-w-2xl rounded-2xl p-5 sm:p-6 md:p-8">
           {!contractsConfigured ? (
             <>
-              <Tag colorScheme="yellow" emphasis="high">Chain contracts not configured</Tag>
+              <Tag colorScheme="yellow" emphasis="high">Campaign unavailable</Tag>
               <TextBody as="p" className="app-muted mt-3 text-sm">
-                Set <code className="text-xs">NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS</code> and{" "}
-                <code className="text-xs">NEXT_PUBLIC_ESCROW_ADDRESS</code> in your environment, or ensure the
-                campaign exists in the index (Supabase) to view indexed metadata only.
+                Live on-chain features are not available in this environment right now. If you expected to open a
+                campaign here, try again later or browse the campaign list.
               </TextBody>
             </>
           ) : (
             <>
               <Tag colorScheme="yellow" emphasis="high">Campaign not found</Tag>
               <TextBody as="p" className="app-muted mt-3 text-sm">
-                No indexed row for this id and the registry does not report it on the configured chain. Check{" "}
-                <code className="text-xs">NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS</code>, RPC, and that the campaign id
-                matches on-chain <code className="text-xs">campaigns.id</code> in Supabase.
+                We could not load this campaign from the network. The link may be incorrect, the campaign may still be
+                syncing, or it may have been removed. Try another campaign from the list.
               </TextBody>
             </>
           )}
@@ -1237,8 +1284,9 @@ export default function CampaignPage() {
       ? Math.min(100, Math.round((Number(fundedForProgress) / Number(targetAmount)) * 100))
       : 0;
 
-  const sectionCard =
-    "rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-[var(--ui-shadow-md)] md:p-6";
+  const sectionCard = "py-8 border-t border-[var(--ui-border)] first:border-t-0 first:pt-0";
+  const sidebarCard =
+    "rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5 shadow-sm md:p-6";
   const sectionEyebrow =
     "mb-3 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--ui-brand-green-strong)]";
   const mutedClass = "app-muted text-sm";
@@ -1272,9 +1320,9 @@ export default function CampaignPage() {
             >
               <p className="font-semibold text-[var(--ui-text)]">On-chain data unavailable</p>
               <p className={`${mutedClass} mt-1 leading-relaxed`}>
-                Showing the Supabase-indexed campaign. The registry did not return this id (check{" "}
-                <code className="rounded bg-[var(--ui-surface)] px-1 text-xs">NEXT_PUBLIC_CAMPAIGN_REGISTRY_ADDRESS</code>
-                , RPC, or chain). Approve, deposit, and release stay disabled until contracts match this network.
+                You are seeing catalog details for this campaign. Live funding actions (approve, deposit, and milestone
+                release) stay off until the app can confirm this campaign on the blockchain—often a temporary issue. Try
+                refreshing later; if it persists, contact the team running this site.
               </p>
             </div>
           ) : null}
@@ -1353,7 +1401,7 @@ export default function CampaignPage() {
         </section>
 
         {targetAmount > 0n ? (
-          <div className={`${sectionCard} mb-10`}>
+          <div className={sectionCard}>
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className={sectionEyebrow}>Funding progress</p>
@@ -1384,9 +1432,9 @@ export default function CampaignPage() {
         ) : null}
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-10">
-          <div className="space-y-8 lg:col-span-7">
+          <div className="lg:col-span-7">
         {dbOrganization ? (
-          <div className={`${sectionCard} border-emerald-500/25`}>
+          <div className={sectionCard}>
             <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
               Organization
             </TextHeadline>
@@ -1473,89 +1521,118 @@ export default function CampaignPage() {
           socials.length > 0 ||
           impactMetricRows.length > 0) ? (
           <div className={sectionCard}>
-            <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
+            <TextHeadline as="h2" className="mb-5 text-[var(--ui-text)]">
               Campaign details
             </TextHeadline>
-            {dbCampaign.beneficiary_description?.trim() ? (
-              <p className="mb-3 text-sm leading-relaxed text-[var(--ui-text)]">
-                <span className="font-semibold text-[var(--ui-muted)]">Who benefits: </span>
-                {dbCampaign.beneficiary_description.trim()}
-              </p>
-            ) : null}
-            <div className={`flex flex-wrap gap-2 ${mutedClass}`}>
-              {dbCampaign.region ? (
-                <Tag colorScheme="gray" emphasis="low">Region: {dbCampaign.region}</Tag>
+            
+            <div className="space-y-5">
+              {dbCampaign.beneficiary_description?.trim() ? (
+                <p className="text-sm leading-relaxed text-[var(--ui-text)]">
+                  <span className="font-semibold text-[var(--ui-muted)] block mb-1">Who benefits</span>
+                  {dbCampaign.beneficiary_description.trim()}
+                </p>
               ) : null}
-              {dbCampaign.cause ? (
-                <Tag colorScheme="gray" emphasis="low">Cause: {dbCampaign.cause}</Tag>
+
+              <div className="flex flex-wrap gap-3">
+                {dbCampaign.region ? (
+                  <div className="rounded-lg bg-[var(--ui-surface-elev)] border border-[var(--ui-border)] px-3 py-1.5 text-sm">
+                    <span className="font-semibold text-[var(--ui-muted)] pr-1.5">Region</span> 
+                    <span className="text-[var(--ui-text)]">{dbCampaign.region}</span>
+                  </div>
+                ) : null}
+                {dbCampaign.cause ? (
+                  <div className="rounded-lg bg-[var(--ui-surface-elev)] border border-[var(--ui-border)] px-3 py-1.5 text-sm">
+                    <span className="font-semibold text-[var(--ui-muted)] pr-1.5">Cause</span> 
+                    <span className="text-[var(--ui-text)]">{dbCampaign.cause}</span>
+                  </div>
+                ) : null}
+                {dbCampaign.deadline ? (
+                  <div className="rounded-lg bg-[var(--ui-surface-elev)] border border-[var(--ui-border)] px-3 py-1.5 text-sm">
+                    <span className="font-semibold text-[var(--ui-muted)] pr-1.5">Deadline</span>
+                    <span className="text-[var(--ui-text)]">{new Date(dbCampaign.deadline).toLocaleDateString(undefined, { dateStyle: "medium" })}</span>
+                  </div>
+                ) : null}
+                {dbCampaign.status ? (
+                  <div className="rounded-lg bg-[var(--ui-surface-elev)] border border-[var(--ui-border)] px-3 py-1.5 text-sm">
+                    <span className="font-semibold text-[var(--ui-muted)] pr-1.5">Status</span>
+                    <span className="text-[var(--ui-text)] capitalize">{dbCampaign.status}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              {dbCampaign.tags && dbCampaign.tags.length > 0 ? (
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="font-semibold text-[var(--ui-muted)] text-sm">Tags</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {dbCampaign.tags.map((t) => (
+                      <span key={t} className="rounded-md bg-[color-mix(in_oklab,var(--ui-brand-green)_10%,transparent)] px-2 py-1 text-xs font-medium text-[var(--ui-brand-green)]">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               ) : null}
-              {dbCampaign.deadline ? (
-                <Tag colorScheme="gray" emphasis="low">
-                  Deadline:{" "}
-                  {new Date(dbCampaign.deadline).toLocaleDateString(undefined, { dateStyle: "medium" })}
-                </Tag>
+
+              {dbCampaign.contact_email?.trim() ? (
+                <p className="text-sm">
+                  <span className="font-semibold text-[var(--ui-muted)]">Contact: </span>
+                  <a
+                    href={`mailto:${dbCampaign.contact_email.trim()}`}
+                    className="font-medium text-[var(--ui-brand-green)] hover:underline"
+                  >
+                    {dbCampaign.contact_email.trim()}
+                  </a>
+                </p>
               ) : null}
-              {dbCampaign.status ? (
-                <Tag colorScheme="gray" emphasis="low">Status: {dbCampaign.status}</Tag>
+
+              {socials.length > 0 ? (
+                <div>
+                  <span className="font-semibold text-[var(--ui-muted)] text-sm mb-2 block">Links</span>
+                  <ul className="flex flex-wrap gap-3 text-sm">
+                    {socials.map((s) => (
+                      <li key={s.url}>
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-[var(--ui-brand-green)] hover:underline"
+                        >
+                          {s.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {impactMetricRows.length > 0 ? (
+                <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-4">
+                  <p className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--ui-muted)]">
+                    Expected outcomes
+                  </p>
+                  <ul className="space-y-3 text-sm text-[var(--ui-text)]">
+                    {impactMetricRows.map((m, i) => (
+                      <li key={i} className="flex flex-col gap-0.5">
+                        <span className="font-semibold">{m.name || "Metric"}</span>
+                        {m.target || m.timeframe ? (
+                          <span className="text-[var(--ui-muted)] text-xs">
+                            {m.target ? `Target: ${m.target}` : ""}
+                            {m.target && m.timeframe ? " · " : ""}
+                            {m.timeframe ? `Timeframe: ${m.timeframe}` : ""}
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
             </div>
-            {dbCampaign.tags && dbCampaign.tags.length > 0 ? (
-              <p className={`mt-3 text-sm ${mutedClass}`}>
-                <span className="font-medium text-[var(--ui-text)]">Tags: </span>
-                {dbCampaign.tags.join(", ")}
-              </p>
-            ) : null}
-            {dbCampaign.contact_email?.trim() ? (
-              <p className={`mt-2 text-sm ${mutedClass}`}>
-                Contact:{" "}
-                <a
-                  href={`mailto:${dbCampaign.contact_email.trim()}`}
-                  className="text-[var(--ui-brand-green)] hover:underline"
-                >
-                  {dbCampaign.contact_email.trim()}
-                </a>
-              </p>
-            ) : null}
-            {socials.length > 0 ? (
-              <ul className="mt-3 space-y-1 text-sm">
-                {socials.map((s) => (
-                  <li key={s.url}>
-                    <a
-                      href={s.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[var(--ui-brand-green)] hover:underline"
-                    >
-                      {s.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            {impactMetricRows.length > 0 ? (
-              <div className="mt-4">
-                <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--ui-muted)]">
-                  Expected outcomes
-                </p>
-                <ul className="space-y-2 text-sm text-[var(--ui-text)]">
-                  {impactMetricRows.map((m, i) => (
-                    <li key={i}>
-                      <span className="font-medium">{m.name || "Metric"}</span>
-                      {m.target ? <span className="text-[var(--ui-muted)]"> — target: {m.target}</span> : null}
-                      {m.timeframe ? (
-                        <span className="text-[var(--ui-muted)]"> ({m.timeframe})</span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
           </div>
         ) : null}
 
         {onChainOk && initialized && milestoneAmounts && milestoneAmounts.length > 0 ? (
           <div className={sectionCard}>
-            <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+            <TextHeadline as="h2" className="mb-2 text-[var(--ui-text)]">
               Milestones
             </TextHeadline>
             <p className={`${mutedClass} mb-4 text-xs`}>
@@ -1806,13 +1883,26 @@ export default function CampaignPage() {
           </div>
         ) : !onChainOk && dbCampaign && (dbCampaign.milestone_count ?? 0) > 0 ? (
           <div className={sectionCard}>
-            <TextHeadline as="h2" className="mb-3 text-[var(--ui-text)]">
+            <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
               Milestones
             </TextHeadline>
-            <p className={`text-sm ${mutedClass}`}>
-              Milestone count from index: <strong>{dbCampaign.milestone_count}</strong>. Connect to the correct network
-              to see per-milestone USDC amounts from the escrow contract.
-            </p>
+            <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--ui-brand-green)_15%,transparent)] text-[var(--ui-brand-green)]">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+                    <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-semibold text-base text-[var(--ui-text)]">
+                    {dbCampaign.milestone_count} {dbCampaign.milestone_count === 1 ? "Milestone" : "Milestones"} Planned
+                  </p>
+                  <p className={`text-sm ${mutedClass} mt-1 leading-relaxed`}>
+                    Connect your wallet to Base Sepolia to view live USDC escrow amounts, track funding progress, and make donations.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -1827,56 +1917,58 @@ export default function CampaignPage() {
         ) : null}
 
         <div className={sectionCard}>
-          <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+          <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
             Activity (indexed)
           </TextHeadline>
-          <p className={`${mutedClass} mb-4 text-xs`}>
-            Deposits and releases as recorded by the indexer (Supabase).
-          </p>
-          {!flowLoaded ? (
-            <div className="flex items-center gap-2"><Spinner size={2} accessibilityLabel="Loading flow" /><span className={mutedClass}>Loading indexed flow...</span></div>
-          ) : (
-            <>
-              <p className={mutedClass}>
-                Deposited: {formatUsdc(indexedDeposited)} USDC · Released: {formatUsdc(indexedReleased)} USDC
-              </p>
-              {(deposits.length > 0 || releases.length > 0) ? (
-                <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1 text-sm">
-                  {deposits.map((d) => (
-                    <a
-                      key={`dep-${d.tx_hash}`}
-                      href={`${TX_EXPLORER_BASE}${d.tx_hash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flow-deposit"
-                    >
-                      <p className="font-medium app-text">Deposit</p>
-                      <p className="app-muted">
-                        +{formatUsdc(BigInt(d.amount))} USDC from {d.depositor.slice(0, 10)}...
-                      </p>
-                    </a>
-                  ))}
-                  {releases.map((r) => (
-                    <a
-                      key={`rel-${r.tx_hash}`}
-                      href={`${TX_EXPLORER_BASE}${r.tx_hash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flow-release"
-                    >
-                      <p className="font-medium brand-brown">Milestone Release #{r.milestone_index}</p>
-                      <p className="app-muted">
-                        -{formatUsdc(BigInt(r.amount))} USDC
-                        {r.attestation_uid ? ` · attestation ${r.attestation_uid.slice(0, 10)}...` : ""}
-                      </p>
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <p className={`mt-2 ${mutedClass}`}>No indexed events yet. Run the indexer and refresh this page.</p>
-              )}
-            </>
-          )}
+          <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
+            <p className={`${mutedClass} mb-4 text-sm leading-relaxed`}>
+              Deposits and releases as recorded by the indexer (Supabase).
+            </p>
+            {!flowLoaded ? (
+              <div className="flex items-center gap-2"><Spinner size={2} accessibilityLabel="Loading flow" /><span className={mutedClass}>Loading indexed flow...</span></div>
+            ) : (
+              <>
+                <p className="font-semibold text-sm text-[var(--ui-text)] mb-3">
+                  Deposited: {formatUsdc(indexedDeposited)} USDC · Released: {formatUsdc(indexedReleased)} USDC
+                </p>
+                {(deposits.length > 0 || releases.length > 0) ? (
+                  <div className="max-h-64 space-y-3 overflow-y-auto pr-1 text-sm">
+                    {deposits.map((d) => (
+                      <a
+                        key={`dep-${d.tx_hash}`}
+                        href={`${TX_EXPLORER_BASE}${d.tx_hash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flow-deposit block rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3 transition-colors hover:border-[var(--ui-brand-green)]/50"
+                      >
+                        <p className="font-medium app-text mb-0.5">Deposit</p>
+                        <p className="app-muted text-xs">
+                          +{formatUsdc(BigInt(d.amount))} USDC from {d.depositor.slice(0, 10)}...
+                        </p>
+                      </a>
+                    ))}
+                    {releases.map((r) => (
+                      <a
+                        key={`rel-${r.tx_hash}`}
+                        href={`${TX_EXPLORER_BASE}${r.tx_hash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flow-release block rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3 transition-colors hover:border-[var(--ui-brand-green)]/50"
+                      >
+                        <p className="font-medium brand-brown mb-0.5">Milestone Release #{r.milestone_index}</p>
+                        <p className="app-muted text-xs">
+                          -{formatUsdc(BigInt(r.amount))} USDC
+                          {r.attestation_uid ? ` · attestation ${r.attestation_uid.slice(0, 10)}...` : ""}
+                        </p>
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className={`text-sm ${mutedClass}`}>No indexed events yet. Run the indexer and refresh this page.</p>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {donors.length > 0 && (
@@ -1939,14 +2031,15 @@ export default function CampaignPage() {
         )}
 
         <div className={sectionCard}>
-          <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+          <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
             Impact feed
           </TextHeadline>
-          <p className={`${mutedClass} mb-3`}>
-            Post proof/updates for this campaign. Entries are pinned to IPFS (Filebase) and
-            indexed in Supabase.
-          </p>
-          {isConnected && (
+          <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
+            <p className={`${mutedClass} mb-5 text-sm leading-relaxed`}>
+              Post proof/updates for this campaign. Entries are pinned to IPFS (Filebase) and
+              indexed in Supabase.
+            </p>
+            {isConnected && (
             <div className="mb-4 space-y-2">
               <textarea
                 value={impactBody}
@@ -2039,17 +2132,19 @@ export default function CampaignPage() {
               ))}
             </div>
           )}
+          </div>
         </div>
 
         <div className={sectionCard}>
-          <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
+          <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
             Comments
           </TextHeadline>
-          <p className={`${mutedClass} mb-4 text-xs`}>
-            Public discussion. Comments are signed with your wallet (same verification as impact posts). You can
-            reply once per thread (replies nest under the original comment).
-          </p>
-          {isConnected ? (
+          <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
+            <p className={`${mutedClass} mb-5 text-sm leading-relaxed`}>
+              Public discussion. Comments are signed with your wallet (same verification as impact posts). You can
+              reply once per thread (replies nest under the original comment).
+            </p>
+            {isConnected ? (
             <div className="mb-6 space-y-2">
               {replyTarget ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-2 text-xs text-[var(--ui-text)]">
@@ -2145,11 +2240,12 @@ export default function CampaignPage() {
               ))}
             </ul>
           )}
+          </div>
         </div>
           </div>
 
           <aside className="space-y-6 lg:col-span-5 lg:sticky lg:top-24 lg:self-start">
-            <div className={sectionCard}>
+            <div className={sidebarCard}>
               <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
                 Share & donate
               </TextHeadline>
@@ -2192,7 +2288,7 @@ export default function CampaignPage() {
               </div>
             </div>
 
-            <div className={sectionCard}>
+            <div className={sidebarCard}>
               <p className={sectionEyebrow}>Snapshot</p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-3">
@@ -2247,7 +2343,7 @@ export default function CampaignPage() {
             )}
 
             {isConnected && initialized && onChainOk ? (
-              <div className={`${sectionCard} border-[color-mix(in_oklab,var(--ui-brand-green)_28%,var(--ui-border))]`}>
+              <div className={`${sidebarCard} border-[color-mix(in_oklab,var(--ui-brand-green)_28%,var(--ui-border))]`}>
                 <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
                   Fund this campaign
                 </TextHeadline>
@@ -2484,7 +2580,7 @@ export default function CampaignPage() {
               </p>
             ) : null}
 
-            <div className={sectionCard}>
+            <div className={sidebarCard}>
               <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
                 Trust & reputation
               </TextHeadline>

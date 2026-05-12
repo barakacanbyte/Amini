@@ -192,6 +192,30 @@ function buildCommentThreads(comments: CampaignCommentRow[]) {
   });
 }
 
+function shortWalletLabel(wallet: string): string {
+  const w = wallet.trim();
+  if (w.length < 14) return w;
+  return `${w.slice(0, 6)}…${w.slice(-4)}`;
+}
+
+function walletAvatarLetter(wallet: string): string {
+  const hex = wallet.replace(/^0x/i, "");
+  return (hex[0] ?? "?").toUpperCase();
+}
+
+function CommentAvatar({ wallet, size = "md" }: { wallet: string; size?: "sm" | "md" }) {
+  const letter = walletAvatarLetter(wallet);
+  const box = size === "sm" ? "h-8 w-8 text-xs" : "h-10 w-10 text-sm";
+  return (
+    <div
+      className={`flex shrink-0 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[color-mix(in_oklab,var(--ui-brand-green)_12%,var(--ui-bg))] font-semibold text-[var(--ui-brand-green)] ${box}`}
+      aria-hidden
+    >
+      {letter}
+    </div>
+  );
+}
+
 function parseMilestoneData(raw: unknown): Array<{ title?: string; description?: string }> {
   if (!Array.isArray(raw)) return [];
   return raw.map((m) => {
@@ -623,6 +647,10 @@ export default function CampaignPage() {
   };
 
   const commentThreads = useMemo(() => buildCommentThreads(comments), [comments]);
+  const commentTotalCount = useMemo(
+    () => commentThreads.reduce((n, { replies }) => n + 1 + replies.length, 0),
+    [commentThreads],
+  );
   const replyTarget =
     replyToId != null ? comments.find((c) => c.id === replyToId) ?? null : null;
 
@@ -1210,15 +1238,54 @@ export default function CampaignPage() {
   const waitingOnMeta = !flowLoaded;
   if (waitingOnChain || waitingOnMeta) {
     return (
-      <main className="app-page px-3 py-6 sm:px-4 sm:py-8 md:px-8">
-        <div className="app-surface mx-auto max-w-2xl rounded-2xl p-5 sm:p-6 md:p-8">
-          <div className="flex items-center gap-3">
-            <Spinner size={3} accessibilityLabel="Loading campaign" />
-            <TextBody as="p" className="app-muted">Loading campaign...</TextBody>
+      <main className="app-page px-3 py-10 sm:px-6 sm:py-12 md:px-8">
+        <div className="mx-auto max-w-2xl">
+          <div className="mb-6">
+            <Button as={Link} href="/campaigns" variant="secondary" compact transparent>
+              ← Campaigns
+            </Button>
           </div>
-          <Button as={Link} href="/campaigns" variant="secondary" compact transparent className="mt-4">
-            Back to campaigns
-          </Button>
+          <div
+            className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-6 py-10 shadow-sm sm:px-10 sm:py-12"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <span className="sr-only">Loading campaign, please wait.</span>
+            <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:gap-10">
+              <div
+                className="flex shrink-0 justify-center sm:justify-start"
+                aria-hidden="true"
+              >
+                <div className="flex h-[5.5rem] w-[5.5rem] items-center justify-center rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-bg)] shadow-[inset_0_1px_0_0_color-mix(in_oklab,var(--ui-text)_6%,transparent)]">
+                  <Spinner size={4} accessibilityLabel="" />
+                </div>
+              </div>
+              <div className="min-w-0 flex-1 text-center sm:text-left">
+                <TextTitle2 as="h1" className="text-balance text-[var(--ui-text)]">
+                  Loading campaign
+                </TextTitle2>
+                <TextCaption as="p" className="mx-auto mt-3 max-w-md text-pretty text-[var(--ui-muted)] sm:mx-0">
+                  Fetching on-chain data and indexed details. This usually takes a few seconds.
+                </TextCaption>
+                {id ? (
+                  <p className="mt-2 font-mono text-xs tabular-nums text-[var(--ui-muted)]">
+                    Campaign ID #{id}
+                  </p>
+                ) : null}
+                <div className="mx-auto mt-10 max-w-md space-y-3 sm:mx-0" aria-hidden="true">
+                  <div className="h-2.5 w-full rounded-full bg-[var(--ui-border)] animate-pulse" />
+                  <div
+                    className="h-2.5 w-[88%] rounded-full bg-[var(--ui-border)] animate-pulse opacity-80 [animation-delay:120ms]"
+                  />
+                  <div
+                    className="h-2.5 w-[72%] rounded-full bg-[var(--ui-border)] animate-pulse opacity-70 [animation-delay:240ms]"
+                  />
+                  <div className="mt-6 h-28 w-full rounded-xl bg-[var(--ui-border)] animate-pulse opacity-50 [animation-delay:80ms]" />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     );
@@ -1353,6 +1420,17 @@ export default function CampaignPage() {
                 priority
                 unoptimized
               />
+              <div className="absolute inset-0 flex items-end justify-start bg-gradient-to-t from-black/60 via-black/20 to-transparent p-5 sm:p-6">
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    document.getElementById("donate")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  className="!rounded-full !bg-[var(--ui-brand-green)] !px-7 !text-white shadow-lg hover:!bg-[var(--ui-brand-green-strong)]"
+                >
+                  Donate now
+                </Button>
+              </div>
             </div>
           ) : null}
           <div className="flex flex-col gap-4">
@@ -1466,22 +1544,24 @@ export default function CampaignPage() {
                     {dbOrganization.description.trim()}
                   </p>
                 ) : null}
-                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">
+                <div className="mt-4 flex flex-wrap items-center gap-2">
                   {dbOrganization.website_url?.trim() ? (
                     <a
                       href={dbOrganization.website_url.trim()}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[var(--ui-brand-green)] hover:underline"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-1.5 text-xs font-medium text-[var(--ui-text)] transition-colors hover:border-[var(--ui-brand-green)]/60 hover:text-[var(--ui-brand-green)]"
                     >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                       Website
                     </a>
                   ) : null}
                   {dbOrganization.official_email?.trim() ? (
                     <a
                       href={`mailto:${dbOrganization.official_email.trim()}`}
-                      className="text-[var(--ui-brand-green)] hover:underline"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-1.5 text-xs font-medium text-[var(--ui-text)] transition-colors hover:border-[var(--ui-brand-green)]/60 hover:text-[var(--ui-brand-green)]"
                     >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3.5 w-3.5" aria-hidden><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                       Email
                     </a>
                   ) : null}
@@ -1490,8 +1570,9 @@ export default function CampaignPage() {
                       href={`https://twitter.com/${dbOrganization.twitter_handle.replace(/^@/, "")}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[var(--ui-brand-green)] hover:underline"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-1.5 text-xs font-medium text-[var(--ui-text)] transition-colors hover:border-[var(--ui-brand-green)]/60 hover:text-[var(--ui-brand-green)]"
                     >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5" aria-hidden><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                       Twitter
                     </a>
                   ) : null}
@@ -1500,8 +1581,9 @@ export default function CampaignPage() {
                       href={dbOrganization.linkedin_url.trim()}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[var(--ui-brand-green)] hover:underline"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-1.5 text-xs font-medium text-[var(--ui-text)] transition-colors hover:border-[var(--ui-brand-green)]/60 hover:text-[var(--ui-brand-green)]"
                     >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-3.5 w-3.5" aria-hidden><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
                       LinkedIn
                     </a>
                   ) : null}
@@ -1636,7 +1718,7 @@ export default function CampaignPage() {
               Milestones
             </TextHeadline>
             <p className={`${mutedClass} mb-4 text-xs`}>
-              Milestone 1 is open for funding immediately. Each subsequent milestone unlocks only after the previous one is completed, verified by volunteers, and attested on-chain (EAS).
+              The current open milestone is ready for funding. Each subsequent milestone unlocks after the previous one is completed and attested on-chain.
             </p>
             <ul className="space-y-4">
               {milestoneAmounts.map((amt, i) => {
@@ -1811,6 +1893,22 @@ export default function CampaignPage() {
                       );
                     })()}
 
+                    {/* Donate button for active milestone */}
+                    {isActive && !isReleased && !isOwner && (
+                      <div className="mt-3 pl-8">
+                        <Button
+                          variant="primary"
+                          compact
+                          onClick={() => {
+                            setFundMilestoneIndex(String(i));
+                            document.getElementById("donate")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }}
+                        >
+                          Fund this milestone
+                        </Button>
+                      </div>
+                    )}
+
                     {/* Submit proof button/form for org owner */}
                     {isOwner && isActive && !isReleased && (
                       <div className="mt-3 pl-8">
@@ -1883,26 +1981,69 @@ export default function CampaignPage() {
           </div>
         ) : !onChainOk && dbCampaign && (dbCampaign.milestone_count ?? 0) > 0 ? (
           <div className={sectionCard}>
-            <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
-              Milestones
-            </TextHeadline>
-            <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--ui-brand-green)_15%,transparent)] text-[var(--ui-brand-green)]">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
-                    <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div>
-                  <p className="font-semibold text-base text-[var(--ui-text)]">
-                    {dbCampaign.milestone_count} {dbCampaign.milestone_count === 1 ? "Milestone" : "Milestones"} Planned
-                  </p>
-                  <p className={`text-sm ${mutedClass} mt-1 leading-relaxed`}>
-                    Connect your wallet to Base Sepolia to view live USDC escrow amounts, track funding progress, and make donations.
-                  </p>
-                </div>
-              </div>
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <TextHeadline as="h2" className="text-[var(--ui-text)]">
+                Milestones
+              </TextHeadline>
+              <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-1 text-xs font-semibold text-[var(--ui-muted)]">
+                {dbCampaign.milestone_count} planned
+              </span>
             </div>
+            <ul className="space-y-3">
+              {parseMilestoneData(dbCampaign.milestone_data).length > 0
+                ? parseMilestoneData(dbCampaign.milestone_data).map((m, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3"
+                    >
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--ui-border)] text-xs font-bold text-[var(--ui-muted)] mt-0.5">
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm text-[var(--ui-text)]">{m.title || `Milestone ${i + 1}`}</p>
+                        {m.description ? (
+                          <p className={`mt-0.5 text-xs leading-relaxed ${mutedClass}`}>{m.description}</p>
+                        ) : null}
+                      </div>
+                      <Button
+                        variant="primary"
+                        compact
+                        className="shrink-0"
+                        onClick={() => {
+                          setFundMilestoneIndex(String(i));
+                          document.getElementById("donate")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
+                      >
+                        Fund
+                      </Button>
+                    </li>
+                  ))
+                : Array.from({ length: dbCampaign.milestone_count ?? 0 }, (_, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-3 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3"
+                    >
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--ui-border)] text-xs font-bold text-[var(--ui-muted)] mt-0.5">
+                        {i + 1}
+                      </span>
+                      <p className={`min-w-0 flex-1 text-sm ${mutedClass}`}>Milestone {i + 1}</p>
+                      <Button
+                        variant="primary"
+                        compact
+                        className="shrink-0"
+                        onClick={() => {
+                          setFundMilestoneIndex(String(i));
+                          document.getElementById("donate")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
+                      >
+                        Fund
+                      </Button>
+                    </li>
+                  ))}
+            </ul>
+            <p className={`mt-3 text-xs ${mutedClass}`}>
+              USDC amounts and funding progress will appear once on-chain data is available.
+            </p>
           </div>
         ) : null}
 
@@ -2136,110 +2277,157 @@ export default function CampaignPage() {
         </div>
 
         <div className={sectionCard}>
-          <TextHeadline as="h2" className="mb-4 text-[var(--ui-text)]">
-            Comments
-          </TextHeadline>
-          <div className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] p-5">
-            <p className={`${mutedClass} mb-5 text-sm leading-relaxed`}>
-              Public discussion. Comments are signed with your wallet (same verification as impact posts). You can
-              reply once per thread (replies nest under the original comment).
-            </p>
-            {isConnected ? (
-            <div className="mb-6 space-y-2">
-              {replyTarget ? (
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-2 text-xs text-[var(--ui-text)]">
-                  <span className="min-w-0">
-                    Replying to{" "}
-                    <span className="font-mono text-[var(--ui-muted)]">
-                      {replyTarget.author_wallet.slice(0, 10)}…
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setReplyToId(null)}
-                    className="shrink-0 text-[var(--ui-brand-green)] hover:underline"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : null}
-              <textarea
-                value={commentBody}
-                onChange={(e) => setCommentBody(e.target.value)}
-                rows={3}
-                maxLength={2000}
-                placeholder={
-                  replyTarget
-                    ? "Write your reply…"
-                    : "Share encouragement, questions, or feedback…"
-                }
-                className="w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-3 app-text placeholder-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-focus-ring)]"
-              />
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className={`text-xs ${mutedClass}`}>{commentBody.length}/2000</span>
-                <Button
-                  variant="primary"
-                  compact
-                  onClick={handlePostComment}
-                  disabled={commentSubmitting || !commentBody.trim()}
-                  loading={commentSubmitting}
-                >
-                  {commentSubmitting ? "Posting…" : replyTarget ? "Post reply" : "Post comment"}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <p className={`${mutedClass} mb-6 text-sm`}>Connect your wallet to leave a comment.</p>
-          )}
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <TextHeadline as="h2" className="text-[var(--ui-text)]">
+              Comments
+            </TextHeadline>
+            {commentTotalCount > 0 ? (
+              <span className="shrink-0 rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-1 text-xs font-semibold tabular-nums text-[var(--ui-text)]">
+                {commentTotalCount} {commentTotalCount === 1 ? "comment" : "comments"}
+              </span>
+            ) : null}
+          </div>
 
-          {commentThreads.length === 0 ? (
-            <p className={`text-sm ${mutedClass}`}>No comments yet. Be the first to say something.</p>
-          ) : (
-            <ul className="space-y-4">
-              {commentThreads.map(({ root, replies }) => (
-                <li
-                  key={root.id}
-                  className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4"
-                >
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--ui-text)]">
-                    {root.body}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <p className={`flex flex-wrap items-center gap-x-2 text-xs ${mutedClass}`}>
-                      <span className="font-mono">{root.author_wallet.slice(0, 10)}…</span>
-                      <span aria-hidden>·</span>
-                      <time dateTime={root.created_at}>{new Date(root.created_at).toLocaleString()}</time>
-                    </p>
-                    {isConnected ? (
-                      <button
-                        type="button"
-                        onClick={() => setReplyToId(root.id)}
-                        className="text-xs font-medium text-[var(--ui-brand-green)] hover:underline"
-                      >
-                        Reply
-                      </button>
+          <div className="overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-bg)] shadow-sm">
+
+            {isConnected ? (
+              <div className="border-b border-[var(--ui-border)] p-5 sm:p-6">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
+                  {replyTarget ? "Your reply" : "Write a comment"}
+                </p>
+                <div className={`flex gap-3 sm:gap-4 ${address ? "" : "flex-col"}`}>
+                  {address ? <CommentAvatar wallet={address} /> : null}
+                  <div className="min-w-0 flex-1 space-y-3">
+                    {replyTarget ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-elev)] px-3 py-2 text-xs text-[var(--ui-text)]">
+                        <span className="min-w-0">
+                          Replying to{" "}
+                          <span className="font-mono font-medium text-[var(--ui-muted)]">
+                            {shortWalletLabel(replyTarget.author_wallet)}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setReplyToId(null)}
+                          className="shrink-0 text-xs font-semibold text-[var(--ui-brand-green)] hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     ) : null}
+                    <textarea
+                      value={commentBody}
+                      onChange={(e) => setCommentBody(e.target.value)}
+                      rows={4}
+                      maxLength={2000}
+                      placeholder={
+                        replyTarget
+                          ? "Write your reply…"
+                          : "Share encouragement, questions, or feedback…"
+                      }
+                      className="min-h-[6.5rem] w-full resize-y rounded-xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3 text-sm leading-relaxed text-[var(--ui-text)] placeholder:text-[var(--ui-muted)] focus:border-[var(--ui-brand-green)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-focus-ring)]"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span className={`text-xs ${mutedClass}`}>{commentBody.length} / 2000</span>
+                      <Button
+                        variant="primary"
+                        compact
+                        onClick={handlePostComment}
+                        disabled={commentSubmitting || !commentBody.trim()}
+                        loading={commentSubmitting}
+                      >
+                        {commentSubmitting ? "Posting…" : replyTarget ? "Post reply" : "Post comment"}
+                      </Button>
+                    </div>
                   </div>
-                  {replies.length > 0 ? (
-                    <ul className="mt-4 space-y-3 border-l-2 border-[color-mix(in_oklab,var(--ui-brand-green)_35%,var(--ui-border))] pl-4">
-                      {replies.map((co) => (
-                        <li key={co.id}>
-                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--ui-text)]">
-                            {co.body}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="bg-[var(--ui-surface-elev)] p-5 sm:p-6">
+              {commentThreads.length > 0 ? (
+                <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
+                  {commentThreads.length} {commentThreads.length === 1 ? "conversation" : "conversations"}
+                </p>
+              ) : null}
+              {commentThreads.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-[var(--ui-border)] bg-[var(--ui-bg)] px-5 py-10 text-center">
+                  <p className="text-sm font-medium text-[var(--ui-text)]">No comments yet</p>
+                  <p className={`mt-1 text-sm ${mutedClass}`}>Be the first to say something.</p>
+                </div>
+              ) : (
+                <ul className="space-y-4">
+                  {commentThreads.map(({ root, replies }) => (
+                    <li
+                      key={root.id}
+                      className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] p-4 shadow-sm sm:p-5"
+                    >
+                      <div className="flex gap-3 sm:gap-4">
+                        <CommentAvatar wallet={root.author_wallet} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <span className="font-mono text-sm font-semibold text-[var(--ui-text)]">
+                              {shortWalletLabel(root.author_wallet)}
+                            </span>
+                            <time
+                              dateTime={root.created_at}
+                              className="text-xs text-[var(--ui-muted)]"
+                            >
+                              {new Date(root.created_at).toLocaleString(undefined, {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })}
+                            </time>
+                          </div>
+                          <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-[var(--ui-text)]">
+                            {root.body}
                           </p>
-                          <p className={`mt-2 flex flex-wrap items-center gap-x-2 text-xs ${mutedClass}`}>
-                            <span className="font-mono">{co.author_wallet.slice(0, 10)}…</span>
-                            <span aria-hidden>·</span>
-                            <time dateTime={co.created_at}>{new Date(co.created_at).toLocaleString()}</time>
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
+                          {isConnected ? (
+                            <div className="mt-3">
+                              <button
+                                type="button"
+                                onClick={() => setReplyToId(root.id)}
+                                className="text-xs font-semibold text-[var(--ui-brand-green)] hover:underline"
+                              >
+                                Reply
+                              </button>
+                            </div>
+                          ) : null}
+                          {replies.length > 0 ? (
+                            <ul className="mt-5 space-y-4 border-l-2 border-[color-mix(in_oklab,var(--ui-brand-green)_28%,var(--ui-border))] pl-4 sm:pl-5">
+                              {replies.map((co) => (
+                                <li key={co.id} className="flex gap-3">
+                                  <CommentAvatar wallet={co.author_wallet} size="sm" />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                                      <span className="font-mono text-xs font-semibold text-[var(--ui-text)]">
+                                        {shortWalletLabel(co.author_wallet)}
+                                      </span>
+                                      <time
+                                        dateTime={co.created_at}
+                                        className="text-[11px] text-[var(--ui-muted)]"
+                                      >
+                                        {new Date(co.created_at).toLocaleString(undefined, {
+                                          dateStyle: "medium",
+                                          timeStyle: "short",
+                                        })}
+                                      </time>
+                                    </div>
+                                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-[var(--ui-text)]">
+                                      {co.body}
+                                    </p>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
           </div>
@@ -2342,13 +2530,13 @@ export default function CampaignPage() {
               </div>
             )}
 
-            {isConnected && initialized && onChainOk ? (
-              <div className={`${sidebarCard} border-[color-mix(in_oklab,var(--ui-brand-green)_28%,var(--ui-border))]`}>
+            {dbCampaign || onChainOk ? (
+              <div id="donate" className={`${sidebarCard} border-[color-mix(in_oklab,var(--ui-brand-green)_28%,var(--ui-border))]`}>
                 <TextHeadline as="h2" className="mb-1 text-[var(--ui-text)]">
                   Fund this campaign
                 </TextHeadline>
                 <p className={`${mutedClass} mb-4 text-xs`}>
-                  USDC on Base. Fund the current open milestone or make a general donation. Future milestones unlock after the organization proves progress and receives an EAS attestation.
+                  Fund a milestone or make a general donation.
                 </p>
 
                 <div className="space-y-4">
@@ -2361,17 +2549,29 @@ export default function CampaignPage() {
                       className="w-full rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-4 py-2.5 app-text focus:border-[var(--ui-brand-green)] focus:outline-none"
                     >
                       <option value="general">General (no preference)</option>
-                      {milestoneAmounts?.map((amt, i) => {
-                        const msData = parseMilestoneData(dbCampaign?.milestone_data);
-                        const label = msData[i]?.title?.trim() || `Milestone ${i + 1}`;
-                        const isLocked = i > Number(releasedCount ?? 0n);
-                        const isReleased = Number(releasedCount ?? 0n) > i;
-                        return (
-                          <option key={i} value={String(i)} disabled={isLocked}>
-                            {isLocked ? "\u{1F512} " : isReleased ? "\u2713 " : ""}{label} — {formatUsdc(amt)} USDC{isLocked ? " (locked)" : isReleased ? " (released)" : ""}
-                          </option>
-                        );
-                      })}
+                      {milestoneAmounts && milestoneAmounts.length > 0
+                        ? milestoneAmounts.map((amt, i) => {
+                            const msData = parseMilestoneData(dbCampaign?.milestone_data);
+                            const label = msData[i]?.title?.trim() || `Milestone ${i + 1}`;
+                            const isLocked = i > Number(releasedCount ?? 0n);
+                            const isReleased = Number(releasedCount ?? 0n) > i;
+                            return (
+                              <option key={i} value={String(i)} disabled={isLocked}>
+                                {isLocked ? "\u{1F512} " : isReleased ? "\u2713 " : ""}{label} — {formatUsdc(amt)} USDC{isLocked ? " (locked)" : isReleased ? " (released)" : ""}
+                              </option>
+                            );
+                          })
+                        : (parseMilestoneData(dbCampaign?.milestone_data).length > 0
+                            ? parseMilestoneData(dbCampaign?.milestone_data).map((m, i) => (
+                                <option key={i} value={String(i)}>
+                                  {m.title?.trim() || `Milestone ${i + 1}`}
+                                </option>
+                              ))
+                            : Array.from({ length: dbCampaign?.milestone_count ?? 0 }, (_, i) => (
+                                <option key={i} value={String(i)}>
+                                  Milestone {i + 1}
+                                </option>
+                              )))}
                     </select>
                     {milestoneAmounts && Number(releasedCount ?? 0n) < milestoneAmounts.length && (
                       <p className={`mt-1.5 text-xs ${mutedClass}`}>
@@ -2480,7 +2680,19 @@ export default function CampaignPage() {
 
                   {/* Action buttons */}
                   <div className="flex flex-wrap gap-2 pt-1">
-                    {isSmartWallet ? (
+                    {!isConnected ? (
+                      <div className="w-full rounded-xl border border-dashed border-[var(--ui-border)] bg-[var(--ui-bg)] p-4 text-center">
+                        <p className="text-sm font-semibold text-[var(--ui-text)]">Connect to donate</p>
+                        <p className={`mt-1 text-xs ${mutedClass}`}>Use the wallet control in the header to connect.</p>
+                      </div>
+                    ) : !onChainOk || !initialized ? (
+                      <div className="w-full rounded-xl border border-amber-500/35 bg-[color-mix(in_oklab,var(--ui-brand-amber)_10%,var(--ui-bg))] p-4 text-center">
+                        <p className="text-sm font-semibold text-[var(--ui-text)]">Funding is temporarily unavailable</p>
+                        <p className={`mt-1 text-xs ${mutedClass}`}>
+                          This campaign is visible, but live funding data has not finished loading yet.
+                        </p>
+                      </div>
+                    ) : isSmartWallet ? (
                       <Button
                         variant="primary"
                         compact

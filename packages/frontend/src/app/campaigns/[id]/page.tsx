@@ -9,7 +9,10 @@ import {
   useWalletClient,
   useWriteContract,
   useWaitForTransactionReceipt,
+  usePublicClient,
 } from "wagmi";
+import { useSendUserOperation, useWaitForUserOperation, useCurrentUser } from "@coinbase/cdp-hooks";
+import { encodeFunctionData } from "viem";
 import { useAminiSigning } from "@/context/AminiSigningContext";
 import { Button } from "@coinbase/cds-web/buttons/Button";
 import { TextTitle2 } from "@coinbase/cds-web/typography/TextTitle2";
@@ -24,6 +27,7 @@ import {
   milestoneEscrowAbi,
   formatUsdc,
   parseUsdc,
+  tryParseUsdc,
 } from "@/lib/contracts";
 import { BASE_SEPOLIA_CHAIN_ID } from "@amini/shared";
 import type { DonorListItem } from "@/lib/organizationTypes";
@@ -218,6 +222,11 @@ export default function CampaignPage() {
   const { address, isConnected, signMessageAsync, getCdpAccessToken } =
     useAminiSigning();
   const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  const { currentUser } = useCurrentUser();
+  const smartAccount = currentUser?.evmSmartAccounts?.[0];
+  const isSmartWallet = !!(smartAccount && address && address.toLowerCase() === smartAccount.toLowerCase());
+  const { sendUserOperation } = useSendUserOperation();
 
   const registryAddress = config.campaignRegistry;
   const escrowAddress = config.escrow;
@@ -250,9 +259,12 @@ export default function CampaignPage() {
   const [fundMilestoneIndex, setFundMilestoneIndex] = useState<string>("general");
   const [fundAnonymous, setFundAnonymous] = useState(false);
   const [fundMessage, setFundMessage] = useState("");
+  const [donationError, setDonationError] = useState<string | null>(null);
+  const [donationStatus, setDonationStatus] = useState<string | null>(null);
   const [donorProfileName, setDonorProfileName] = useState<string | null>(null);
   const [donorProfileAvatar, setDonorProfileAvatar] = useState<string | null>(null);
   const [depositSuccessBanner, setDepositSuccessBanner] = useState(false);
+  const [pendingDonationUserOpHash, setPendingDonationUserOpHash] = useState<`0x${string}` | null>(null);
   const [proofMilestoneIndex, setProofMilestoneIndex] = useState<number | null>(null);
   const [proofTitle, setProofTitle] = useState("");
   const [proofDescription, setProofDescription] = useState("");
@@ -338,9 +350,18 @@ export default function CampaignPage() {
   const { writeContract: writeApprove, data: txApprove, isPending: isPendingApprove } = useWriteContract();
   const { isLoading: isConfirmingApprove } = useWaitForTransactionReceipt({ hash: txApprove });
   const { writeContract: writeDeposit, data: txDeposit, isPending: isPendingDeposit } = useWriteContract();
-  const { isLoading: isConfirmingDeposit, isSuccess: depositConfirmed } = useWaitForTransactionReceipt({ hash: txDeposit });
+  const { isLoading: isConfirmingDeposit, isSuccess: depositTxConfirmed } = useWaitForTransactionReceipt({ hash: txDeposit });
   const { writeContract: writeRelease, data: txRelease, isPending: isPendingRelease } = useWriteContract();
   const { isLoading: isConfirmingRelease } = useWaitForTransactionReceipt({ hash: txRelease });
+  const { data: donationCdpUserOp, error: donationCdpUserOpError } = useWaitForUserOperation({
+    userOperationHash: pendingDonationUserOpHash ?? undefined,
+    evmSmartAccount: smartAccount as `0x${string}` | undefined,
+    network: "base-sepolia",
+    enabled: Boolean(pendingDonationUserOpHash && isSmartWallet),
+  });
+  const cdpDonationTxHash = donationCdpUserOp?.transactionHash || undefined;
+  const cdpDonationConfirmed = !!cdpDonationTxHash;
+  const isPendingDonationCdp = Boolean(pendingDonationUserOpHash && !cdpDonationConfirmed);
 
   type CampaignTuple = readonly [owner: `0x${string}`, beneficiary: `0x${string}`, targetAmount: bigint, milestoneCount: number, metadataUri: string, exists: boolean];
   const c = campaign as CampaignTuple | undefined;
@@ -360,6 +381,7 @@ export default function CampaignPage() {
         (isHexAddress(dbBeneficiary) && dbBeneficiary.toLowerCase() === address.toLowerCase())),
   );
   const approveConfirmed = txApprove && !isConfirmingApprove;
+  const depositConfirmed = depositTxConfirmed || cdpDonationConfirmed;
 
   const xmtpPeerAddress = useMemo(() => {
     if (c && c[5] && c[0] && c[1]) {
@@ -587,11 +609,67 @@ export default function CampaignPage() {
   const replyTarget =
     replyToId != null ? comments.find((c) => c.id === replyToId) ?? null : null;
 
+  const validateDonationAmount = () => {
+    const amountWei = tryParseUsdc(fundAmount);
+    if (amountWei === null) {
+      setDonationError("Enter a valid USDC amount.");
+      return null;
+    }
+    if (amountWei <= BigInt(0)) {
+      setDonationError("Donation amount must be greater than 0 USDC.");
+      return null;
+    }
+    return amountWei;
+  };
+
+  const NO_MILESTONE_PREFERENCE = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
   const handleApprove = async () => {
-    if (!escrowAddress || !config.usdc || !fundAmount) return;
-    const amountWei = parseUsdc(fundAmount);
-    if (amountWei <= BigInt(0)) return;
+    if (!escrowAddress || !config.usdc) {
+      setDonationError("Donation contracts are not configured.");
+      return;
+    }
+    const amountWei = validateDonationAmount();
+    if (amountWei === null) return;
+
+    if (isSmartWallet && smartAccount) {
+      try {
+        setDonationError(null);
+        setDonationStatus("Preparing gasless batch donation (approve + deposit)...");
+        const milestoneArg = fundMilestoneIndex === "general"
+          ? NO_MILESTONE_PREFERENCE
+          : BigInt(fundMilestoneIndex);
+        const approveCallData = encodeFunctionData({
+          abi: ERC20_APPROVE_ABI,
+          functionName: "approve",
+          args: [escrowAddress, amountWei],
+        });
+        const depositCallData = encodeFunctionData({
+          abi: milestoneEscrowAbi,
+          functionName: "deposit",
+          args: [campaignId, milestoneArg, amountWei],
+        });
+        const result = await sendUserOperation({
+          evmSmartAccount: smartAccount,
+          network: "base-sepolia",
+          calls: [
+            { to: config.usdc as `0x${string}`, data: approveCallData, value: 0n },
+            { to: escrowAddress as `0x${string}`, data: depositCallData, value: 0n },
+          ],
+          useCdpPaymaster: true,
+        });
+        setPendingDonationUserOpHash(result.userOperationHash as `0x${string}`);
+        setDonationStatus("Gasless donation submitted. Waiting for confirmation...");
+      } catch (e) {
+        setDonationError((e as Error).message || "Gasless donation failed.");
+        setDonationStatus(null);
+      }
+      return;
+    }
+
     try {
+      setDonationError(null);
+      setDonationStatus("Requesting USDC approval in your wallet...");
       writeApprove({
         address: config.usdc,
         abi: ERC20_APPROVE_ABI,
@@ -600,26 +678,35 @@ export default function CampaignPage() {
         chainId: config.chainId,
       });
     } catch (e) {
-      console.error(e);
+      setDonationError((e as Error).message || "USDC approval failed.");
+      setDonationStatus(null);
     }
   };
 
-  const NO_MILESTONE_PREFERENCE = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-
   const handleDeposit = () => {
-    if (!escrowAddress || !fundAmount) return;
-    const amountWei = parseUsdc(fundAmount);
-    if (amountWei <= BigInt(0)) return;
+    if (!escrowAddress) {
+      setDonationError("Donation escrow is not configured.");
+      return;
+    }
+    const amountWei = validateDonationAmount();
+    if (amountWei === null) return;
     const milestoneArg = fundMilestoneIndex === "general"
       ? NO_MILESTONE_PREFERENCE
       : BigInt(fundMilestoneIndex);
-    writeDeposit({
-      address: escrowAddress,
-      abi: milestoneEscrowAbi,
-      functionName: "deposit",
-      args: [campaignId, milestoneArg, amountWei],
-      chainId: config.chainId,
-    });
+    try {
+      setDonationError(null);
+      setDonationStatus("Submitting donation deposit to Base Sepolia...");
+      writeDeposit({
+        address: escrowAddress,
+        abi: milestoneEscrowAbi,
+        functionName: "deposit",
+        args: [campaignId, milestoneArg, amountWei],
+        chainId: config.chainId,
+      });
+    } catch (e) {
+      setDonationError((e as Error).message || "Deposit failed.");
+      setDonationStatus(null);
+    }
   };
 
   const handleRelease = () => {
@@ -921,9 +1008,11 @@ export default function CampaignPage() {
 
   const depositPrefSavedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!depositConfirmed || !txDeposit || !address) return;
-    if (depositPrefSavedRef.current === txDeposit) return;
-    depositPrefSavedRef.current = txDeposit;
+    if (!depositConfirmed || !address) return;
+    const effectiveTxHash = txDeposit || cdpDonationTxHash;
+    if (!effectiveTxHash) return;
+    if (depositPrefSavedRef.current === effectiveTxHash) return;
+    depositPrefSavedRef.current = effectiveTxHash;
 
     (async () => {
       try {
@@ -940,7 +1029,7 @@ export default function CampaignPage() {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            txHash: txDeposit,
+            txHash: effectiveTxHash,
             donorWallet: address,
             isAnonymous: fundAnonymous,
             donorMessage: fundMessage.trim() || undefined,
@@ -956,7 +1045,15 @@ export default function CampaignPage() {
         setTimeout(() => setDepositSuccessBanner(false), 8000);
       }
     })();
-  }, [depositConfirmed, txDeposit, address, fundAnonymous, fundMessage, getCdpAccessToken, signMessageAsync]);
+  }, [depositConfirmed, txDeposit, cdpDonationTxHash, address, fundAnonymous, fundMessage, getCdpAccessToken, signMessageAsync]);
+
+  useEffect(() => {
+    if (donationCdpUserOpError && pendingDonationUserOpHash) {
+      setDonationError(donationCdpUserOpError.message || "Gasless donation failed.");
+      setDonationStatus(null);
+      setPendingDonationUserOpHash(null);
+    }
+  }, [donationCdpUserOpError, pendingDonationUserOpHash]);
 
   const indexedDeposited = useMemo(
     () => deposits.reduce((sum, d) => sum + BigInt(d.amount), BigInt(0)),
@@ -2287,7 +2384,19 @@ export default function CampaignPage() {
 
                   {/* Action buttons */}
                   <div className="flex flex-wrap gap-2 pt-1">
-                    {!approveConfirmed ? (
+                    {isSmartWallet ? (
+                      <Button
+                        variant="primary"
+                        compact
+                        onClick={handleApprove}
+                        disabled={!fundAmount || isPendingApprove || isConfirmingApprove || isPendingDonationCdp}
+                        loading={isPendingApprove || isConfirmingApprove || isPendingDonationCdp}
+                      >
+                        {isPendingApprove || isConfirmingApprove || isPendingDonationCdp
+                          ? "Submitting gasless donation..."
+                          : "Donate (gasless)"}
+                      </Button>
+                    ) : !approveConfirmed ? (
                       <Button
                         variant="primary"
                         compact
@@ -2309,6 +2418,16 @@ export default function CampaignPage() {
                       </Button>
                     )}
                   </div>
+                  {donationStatus ? (
+                    <p className="rounded-xl border border-[var(--ui-border)] bg-[var(--ui-bg)] px-3 py-2 text-xs text-[var(--ui-text)]">
+                      {donationStatus}
+                    </p>
+                  ) : null}
+                  {donationError ? (
+                    <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+                      {donationError}
+                    </p>
+                  ) : null}
                 </div>
 
                 {(isOwner || isBeneficiary) &&
@@ -2351,11 +2470,11 @@ export default function CampaignPage() {
               </div>
             ) : null}
 
-            {txDeposit ? (
+            {txDeposit || cdpDonationTxHash ? (
               <p className={`text-center text-sm ${mutedClass} lg:text-left`}>
                 Last deposit:{" "}
                 <a
-                  href={`${TX_EXPLORER_BASE}${txDeposit}`}
+                  href={`${TX_EXPLORER_BASE}${txDeposit || cdpDonationTxHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium brand-brown hover:underline"
